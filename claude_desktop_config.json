@@ -1,0 +1,13 @@
+{
+    "mcpServers": {
+        "kanbanx": {
+            "command": "/path/to/kanban",
+            "args": [
+                "--mcp"
+            ],
+            "env": {
+                "DBPath": "/path/to/kanban.db"
+            }
+        }
+    }
+}
