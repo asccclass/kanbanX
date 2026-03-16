@@ -166,6 +166,7 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 			mcp.WithString("title", mcp.Required(), mcp.Description("任務標題")),
 			mcp.WithString("description", mcp.Description("詳細描述")),
 			mcp.WithString("priority", mcp.Description("優先級：high | medium | low，預設 medium")),
+			mcp.WithString("goal_type", mcp.Description("目標類型：weekly（每週目標）| monthly（每月目標）| yearly（每年目標），留空表示無目標分類")),
 			mcp.WithString("assignee", mcp.Description("負責人姓名")),
 			mcp.WithString("labels", mcp.Description("標籤（逗號分隔），例如：前端,Bug,緊急")),
 		),
@@ -179,6 +180,7 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 				Title:       title,
 				Description: req.GetString("description", ""),
 				Priority:    Priority(req.GetString("priority", "")),
+				GoalType:    GoalType(req.GetString("goal_type", "")),
 				Assignee:    req.GetString("assignee", ""),
 				Labels:      parseLabels(req.GetString("labels", "")),
 			})
@@ -192,11 +194,12 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	// ── update_card ───────────────────────────────────────────────────────────
 	s.AddTool(
 		mcp.NewTool("update_card",
-			mcp.WithDescription("更新任務卡的標題、描述、優先級、負責人或標籤。"),
+			mcp.WithDescription("更新任務卡的標題、描述、優先級、目標類型、負責人或標籤。"),
 			mcp.WithString("card_id", mcp.Required(), mcp.Description("任務卡 ID")),
 			mcp.WithString("title", mcp.Required(), mcp.Description("新的任務標題")),
 			mcp.WithString("description", mcp.Description("新的描述")),
 			mcp.WithString("priority", mcp.Description("優先級：high | medium | low")),
+			mcp.WithString("goal_type", mcp.Description("目標類型：weekly | monthly | yearly，留空則清除目標分類")),
 			mcp.WithString("assignee", mcp.Description("負責人姓名")),
 			mcp.WithString("labels", mcp.Description("新標籤（逗號分隔），留空則清除")),
 		),
@@ -209,6 +212,7 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 				Title:       title,
 				Description: req.GetString("description", ""),
 				Priority:    Priority(req.GetString("priority", "")),
+				GoalType:    GoalType(req.GetString("goal_type", "")),
 				Assignee:    req.GetString("assignee", ""),
 				Labels:      parseLabels(req.GetString("labels", "")),
 			})

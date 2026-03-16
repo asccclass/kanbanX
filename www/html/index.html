@@ -311,6 +311,16 @@
     .pbadge.high   { background: rgba(248,113,113,.18); color: var(--p-high); border: 1px solid rgba(248,113,113,.28); }
     .pbadge.medium { background: rgba(251,191,36,.18);  color: var(--p-med);  border: 1px solid rgba(251,191,36,.28); }
     .pbadge.low    { background: rgba(34,200,122,.18);  color: var(--p-low);  border: 1px solid rgba(34,200,122,.28); }
+    /* ── Goal type badges ── */
+    .goal-badge {
+      padding: 3px 9px; border-radius: 8px;
+      font-size: 11px; font-weight: 700; letter-spacing: .3px;
+      display: inline-flex; align-items: center; gap: 4px;
+      backdrop-filter: blur(6px); white-space: nowrap;
+    }
+    .goal-weekly  { background: rgba(6,200,232,.15);   color: #67e8f9; border: 1px solid rgba(6,200,232,.28); }
+    .goal-monthly { background: rgba(155,111,250,.15); color: #c4b5fd; border: 1px solid rgba(155,111,250,.28); }
+    .goal-yearly  { background: rgba(251,191,36,.15);  color: #fcd34d; border: 1px solid rgba(251,191,36,.28); }
     .avatar {
       width: 26px; height: 26px; border-radius: 50%;
       background: linear-gradient(135deg, var(--purple), var(--cyan));
@@ -711,9 +721,18 @@
           </select>
         </div>
         <div class="fg">
-          <label class="flabel" for="c-asgn">負責人</label>
-          <input class="finput" id="c-asgn" type="text" placeholder="輸入姓名" autocomplete="off" />
+          <label class="flabel" for="c-goal">目標類型</label>
+          <select class="fselect" id="c-goal">
+            <option value="">— 無目標分類 —</option>
+            <option value="weekly">🗓 每週目標</option>
+            <option value="monthly">📅 每月目標</option>
+            <option value="yearly">🎯 每年目標</option>
+          </select>
         </div>
+      </div>
+      <div class="fg">
+        <label class="flabel" for="c-asgn">負責人</label>
+        <input class="finput" id="c-asgn" type="text" placeholder="輸入姓名" autocomplete="off" />
       </div>
       <div class="fg">
         <label class="flabel" for="c-labels">標籤（逗號分隔）</label>
@@ -777,12 +796,18 @@
     </div>
     <div class="drawer-body">
 
-      <!-- Priority + Assignee -->
+      <!-- Priority + Goal Type + Assignee -->
       <div class="drawer-meta">
         <div class="drawer-field">
           <div class="drawer-flabel">優先級</div>
           <div class="drawer-fval" id="drawer-priority"></div>
         </div>
+        <div class="drawer-field">
+          <div class="drawer-flabel">目標類型</div>
+          <div class="drawer-fval" id="drawer-goal"></div>
+        </div>
+      </div>
+      <div class="drawer-meta">
         <div class="drawer-field">
           <div class="drawer-flabel">負責人</div>
           <div class="drawer-fval" id="drawer-assignee"></div>
@@ -1122,6 +1147,9 @@ function makeCard(c, colId) {
   const desc = c.description
     ? `<div class="card-desc">${esc(c.description)}</div>` : '';
   const pri = { high:'高', medium:'中', low:'低' }[c.priority] || '中';
+  const goalLabels = { weekly:'🗓 每週', monthly:'📅 每月', yearly:'🎯 每年' };
+  const goalBadge = c.goalType && goalLabels[c.goalType]
+    ? `<span class="goal-badge goal-${c.goalType}">${goalLabels[c.goalType]}</span>` : '';
 
   el.innerHTML = `
     ${labels ? `<div class="card-labels">${labels}</div>` : ''}
@@ -1130,6 +1158,7 @@ function makeCard(c, colId) {
     <div class="card-foot">
       <div class="card-meta-l">
         <span class="pbadge ${c.priority||'medium'}">${pri}</span>
+        ${goalBadge}
         ${avt}
       </div>
       <div class="card-acts">
@@ -1162,6 +1191,7 @@ function openCardModal(colId) {
   document.getElementById('c-title').value  = '';
   document.getElementById('c-desc').value   = '';
   document.getElementById('c-pri').value    = 'medium';
+  document.getElementById('c-goal').value   = '';
   document.getElementById('c-asgn').value   = '';
   document.getElementById('c-labels').value = '';
   openOv('card-ov');
@@ -1179,6 +1209,7 @@ function openEditModal(cardId) {
   document.getElementById('c-title').value  = found.title  || '';
   document.getElementById('c-desc').value   = found.description || '';
   document.getElementById('c-pri').value    = found.priority || 'medium';
+  document.getElementById('c-goal').value   = found.goalType || '';
   document.getElementById('c-asgn').value   = found.assignee || '';
   document.getElementById('c-labels').value = (found.labels||[]).join(', ');
   openOv('card-ov');
@@ -1197,6 +1228,7 @@ async function saveCard() {
     title,
     description: document.getElementById('c-desc').value.trim(),
     priority:    document.getElementById('c-pri').value,
+    goalType:    document.getElementById('c-goal').value,
     assignee:    document.getElementById('c-asgn').value.trim(),
     labels,
   };
@@ -1322,6 +1354,20 @@ function openDrawer(cardId) {
   const priCls = { high:'pbadge high', medium:'pbadge medium', low:'pbadge low' };
   document.getElementById('drawer-priority').innerHTML =
     `<span class="${priCls[card.priority]||'pbadge medium'}">${priMap[card.priority]||'中優先'}</span>`;
+
+  // Goal type badge
+  const goalInfo = {
+    weekly:  { cls:'goal-badge goal-weekly',  label:'🗓 每週目標' },
+    monthly: { cls:'goal-badge goal-monthly', label:'📅 每月目標' },
+    yearly:  { cls:'goal-badge goal-yearly',  label:'🎯 每年目標' },
+  };
+  const goalEl = document.getElementById('drawer-goal');
+  if (card.goalType && goalInfo[card.goalType]) {
+    const g = goalInfo[card.goalType];
+    goalEl.innerHTML = `<span class="${g.cls}">${g.label}</span>`;
+  } else {
+    goalEl.innerHTML = '<span class="drawer-empty">無目標分類</span>';
+  }
 
   // Assignee
   const asgn = document.getElementById('drawer-assignee');

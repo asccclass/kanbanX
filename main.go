@@ -9,25 +9,39 @@ import (
 )
 
 func main() {
-	if err := godotenv.Load("envfile"); err != nil {
-		fmt.Println("Warning: envfile not found, using defaults")
-	}
-
-	// ── Mode selection ───────────────────────────────────────────────────────
-	// Run as MCP stdio server when --mcp flag is passed.
-	// Everything else starts the normal HTTP server.
+	// ── Detect MCP mode FIRST, before any stdout output ─────────────────────
+	// In MCP stdio mode stdout is a pure JSON-RPC channel.
+	// Nothing may be written to stdout before (or instead of) JSON.
+	mcpMode := false
 	for _, arg := range os.Args[1:] {
 		if arg == "--mcp" {
-			dbPath := os.Getenv("DBPath")
-			if dbPath == "" {
-				dbPath = "kanban.db"
-			}
-			RunMCPServer(dbPath)
-			return
+			mcpMode = true
+			break
 		}
 	}
 
-	// ── HTTP Server mode ─────────────────────────────────────────────────────
+	// ── Load envfile ─────────────────────────────────────────────────────────
+	if err := godotenv.Load("envfile"); err != nil {
+		if mcpMode {
+			// MCP: diagnostics go to stderr only — stdout must stay clean
+			fmt.Fprintln(os.Stderr, "[kanbanx] warning: envfile not found, using defaults")
+		} else {
+			fmt.Println("Warning: envfile not found, using defaults")
+		}
+	}
+
+	dbPath := os.Getenv("DBPath")
+	if dbPath == "" {
+		dbPath = "kanban.db"
+	}
+
+	// ── MCP stdio server mode ────────────────────────────────────────────────
+	if mcpMode {
+		RunMCPServer(dbPath)
+		return
+	}
+
+	// ── HTTP server mode ─────────────────────────────────────────────────────
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -40,20 +54,16 @@ func main() {
 	if templateRoot == "" {
 		templateRoot = "www/template"
 	}
-	dbPath := os.Getenv("DBPath")
-	if dbPath == "" {
-		dbPath = "kanban.db"
-	}
 
 	store, err := NewSQLiteStore(dbPath)
 	if err != nil {
-		fmt.Printf("  ✗ Failed to open database: %v\n", err)
+		fmt.Fprintf(os.Stderr, "  ✗ Failed to open database: %v\n", err)
 		os.Exit(1)
 	}
 	defer store.Close()
 
 	if err := store.EnsureDefaultBoard(); err != nil {
-		fmt.Printf("  ✗ Failed to seed database: %v\n", err)
+		fmt.Fprintf(os.Stderr, "  ✗ Failed to seed database: %v\n", err)
 		os.Exit(1)
 	}
 

@@ -9,7 +9,8 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/ncruces/go-sqlite3/driver"
+	_ "github.com/ncruces/go-sqlite3/embed"
 )
 
 // ─── SQLiteStore ──────────────────────────────────────────────────────────────
@@ -72,6 +73,7 @@ CREATE TABLE IF NOT EXISTS cards (
     title       TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     priority    TEXT NOT NULL DEFAULT 'medium',
+    goal_type   TEXT NOT NULL DEFAULT '',
     assignee    TEXT NOT NULL DEFAULT '',
     labels      TEXT NOT NULL DEFAULT '[]',
     position    INTEGER NOT NULL DEFAULT 0,
@@ -85,8 +87,12 @@ CREATE INDEX IF NOT EXISTS idx_cards_column    ON cards(column_id, position);
 `
 
 func (s *SQLiteStore) migrate() error {
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+	// Idempotent column addition for existing databases that pre-date goal_type
+	_, _ = s.db.Exec(`ALTER TABLE cards ADD COLUMN goal_type TEXT NOT NULL DEFAULT ''`)
+	return nil
 }
 
 // ─── Seed ─────────────────────────────────────────────────────────────────────
@@ -119,8 +125,8 @@ func (s *SQLiteStore) EnsureDefaultBoard() error {
 
 	type colSeed struct{ title, color string }
 	type cardSeed struct {
-		title, desc, priority, assignee string
-		labels                          []string
+		title, desc, priority, goalType, assignee string
+		labels                                     []string
 	}
 	type seed struct {
 		col   colSeed
@@ -129,20 +135,20 @@ func (s *SQLiteStore) EnsureDefaultBoard() error {
 
 	seeds := []seed{
 		{colSeed{"待辦事項", "#6366f1"}, []cardSeed{
-			{"設計系統微服務架構", "規劃整體微服務架構、API Gateway 設計與技術選型評估", "high", "Alice", []string{"架構", "設計"}},
-			{"建立 CI/CD Pipeline", "使用 GitHub Actions 建立自動化測試與部署流程", "medium", "Bob", []string{"DevOps"}},
-			{"撰寫 API 規格文件", "使用 OpenAPI 3.0 規範撰寫完整 REST API 文件", "low", "Carol", []string{"文件"}},
+			{"設計系統微服務架構", "規劃整體微服務架構、API Gateway 設計與技術選型評估", "high", "yearly", "Alice", []string{"架構", "設計"}},
+			{"建立 CI/CD Pipeline", "使用 GitHub Actions 建立自動化測試與部署流程", "medium", "monthly", "Bob", []string{"DevOps"}},
+			{"撰寫 API 規格文件", "使用 OpenAPI 3.0 規範撰寫完整 REST API 文件", "low", "", "Carol", []string{"文件"}},
 		}},
 		{colSeed{"進行中", "#f59e0b"}, []cardSeed{
-			{"實作 JWT 認證機制", "整合 OAuth 2.0 與 JWT，實作 Refresh Token 邏輯", "high", "Dave", []string{"後端", "安全"}},
-			{"前端元件庫開發", "以 React + TypeScript 建立可重用 UI 元件系統", "medium", "Eve", []string{"前端"}},
+			{"實作 JWT 認證機制", "整合 OAuth 2.0 與 JWT，實作 Refresh Token 邏輯", "high", "weekly", "Dave", []string{"後端", "安全"}},
+			{"前端元件庫開發", "以 React + TypeScript 建立可重用 UI 元件系統", "medium", "", "Eve", []string{"前端"}},
 		}},
 		{colSeed{"審查中", "#8b5cf6"}, []cardSeed{
-			{"資料庫索引優化", "分析查詢效能瓶頸，針對高頻查詢建立複合索引", "medium", "Frank", []string{"資料庫", "效能"}},
+			{"資料庫索引優化", "分析查詢效能瓶頸，針對高頻查詢建立複合索引", "medium", "monthly", "Frank", []string{"資料庫", "效能"}},
 		}},
 		{colSeed{"已完成", "#10b981"}, []cardSeed{
-			{"需求訪談與分析", "完成所有利害關係人訪談，產出需求規格書 v1.0", "low", "Grace", []string{"管理"}},
-			{"開發環境建置", "Docker Compose 本機開發環境、環境變數管理", "low", "Henry", []string{"DevOps"}},
+			{"需求訪談與分析", "完成所有利害關係人訪談，產出需求規格書 v1.0", "low", "", "Grace", []string{"管理"}},
+			{"開發環境建置", "Docker Compose 本機開發環境、環境變數管理", "low", "", "Henry", []string{"DevOps"}},
 		}},
 	}
 
@@ -158,9 +164,9 @@ func (s *SQLiteStore) EnsureDefaultBoard() error {
 		for cardPos, c := range s.cards {
 			lblJSON, _ := json.Marshal(c.labels)
 			_, err = tx.Exec(`
-				INSERT INTO cards(id,column_id,title,description,priority,assignee,labels,position,created_at,updated_at)
-				VALUES(?,?,?,?,?,?,?,?,?,?)`,
-				generateID(), colID, c.title, c.desc, c.priority, c.assignee,
+				INSERT INTO cards(id,column_id,title,description,priority,goal_type,assignee,labels,position,created_at,updated_at)
+				VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+				generateID(), colID, c.title, c.desc, c.priority, c.goalType, c.assignee,
 				string(lblJSON), cardPos, now, now,
 			)
 			if err != nil {
@@ -231,7 +237,7 @@ func (s *SQLiteStore) loadBoard() (*Board, error) {
 
 	// Load all cards in one query, then distribute into columns
 	cardRows, err := s.db.Query(
-		`SELECT id, column_id, title, description, priority, assignee,
+		`SELECT id, column_id, title, description, priority, goal_type, assignee,
 		        labels, position, created_at, updated_at
 		 FROM cards
 		 WHERE column_id IN (SELECT id FROM columns WHERE board_id=?)
@@ -251,7 +257,7 @@ func (s *SQLiteStore) loadBoard() (*Board, error) {
 		card := &Card{}
 		var labelsJSON string
 		if err := cardRows.Scan(&card.ID, &card.ColumnID, &card.Title,
-			&card.Description, &card.Priority, &card.Assignee,
+			&card.Description, &card.Priority, &card.GoalType, &card.Assignee,
 			&labelsJSON, &card.Position,
 			&card.CreatedAt, &card.UpdatedAt); err != nil {
 			return nil, err
@@ -283,11 +289,11 @@ func (s *SQLiteStore) GetCard(id string) (*Card, error) {
 	card := &Card{}
 	var labelsJSON string
 	err := s.db.QueryRow(`
-		SELECT id, column_id, title, description, priority, assignee,
+		SELECT id, column_id, title, description, priority, goal_type, assignee,
 		       labels, position, created_at, updated_at
 		FROM cards WHERE id=?`, id).Scan(
 		&card.ID, &card.ColumnID, &card.Title, &card.Description,
-		&card.Priority, &card.Assignee, &labelsJSON,
+		&card.Priority, &card.GoalType, &card.Assignee, &labelsJSON,
 		&card.Position, &card.CreatedAt, &card.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -305,7 +311,7 @@ func (s *SQLiteStore) GetCard(id string) (*Card, error) {
 // ListCards returns all cards in a column (ordered by position).
 func (s *SQLiteStore) ListCards(columnID string) ([]*Card, error) {
 	rows, err := s.db.Query(`
-		SELECT id, column_id, title, description, priority, assignee,
+		SELECT id, column_id, title, description, priority, goal_type, assignee,
 		       labels, position, created_at, updated_at
 		FROM cards WHERE column_id=? ORDER BY position`, columnID)
 	if err != nil {
@@ -318,7 +324,7 @@ func (s *SQLiteStore) ListCards(columnID string) ([]*Card, error) {
 		card := &Card{}
 		var labelsJSON string
 		if err := rows.Scan(&card.ID, &card.ColumnID, &card.Title,
-			&card.Description, &card.Priority, &card.Assignee,
+			&card.Description, &card.Priority, &card.GoalType, &card.Assignee,
 			&labelsJSON, &card.Position,
 			&card.CreatedAt, &card.UpdatedAt); err != nil {
 			return nil, err
@@ -336,6 +342,9 @@ func (s *SQLiteStore) CreateCard(req *AddCardRequest) (*Card, error) {
 	if req.Priority == "" || !req.Priority.Valid() {
 		req.Priority = PriorityMedium
 	}
+	if !req.GoalType.Valid() {
+		req.GoalType = GoalNone
+	}
 	if req.Labels == nil {
 		req.Labels = []string{}
 	}
@@ -352,6 +361,7 @@ func (s *SQLiteStore) CreateCard(req *AddCardRequest) (*Card, error) {
 		Title:       req.Title,
 		Description: req.Description,
 		Priority:    req.Priority,
+		GoalType:    req.GoalType,
 		Assignee:    req.Assignee,
 		Labels:      req.Labels,
 		Position:    maxPos,
@@ -361,11 +371,11 @@ func (s *SQLiteStore) CreateCard(req *AddCardRequest) (*Card, error) {
 
 	lblJSON, _ := json.Marshal(card.Labels)
 	_, err := s.db.Exec(`
-		INSERT INTO cards(id,column_id,title,description,priority,assignee,
+		INSERT INTO cards(id,column_id,title,description,priority,goal_type,assignee,
 		                  labels,position,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
 		card.ID, card.ColumnID, card.Title, card.Description,
-		string(card.Priority), card.Assignee, string(lblJSON),
+		string(card.Priority), string(card.GoalType), card.Assignee, string(lblJSON),
 		card.Position, card.CreatedAt, card.UpdatedAt,
 	)
 	if err != nil {
@@ -392,9 +402,9 @@ func (s *SQLiteStore) UpdateCard(id string, req *UpdateCardRequest) (*Card, erro
 
 	res, err := s.db.Exec(`
 		UPDATE cards
-		SET title=?, description=?, priority=?, assignee=?, labels=?, updated_at=?
+		SET title=?, description=?, priority=?, goal_type=?, assignee=?, labels=?, updated_at=?
 		WHERE id=?`,
-		req.Title, req.Description, string(req.Priority),
+		req.Title, req.Description, string(req.Priority), string(req.GoalType),
 		req.Assignee, string(lblJSON), now, id,
 	)
 	if err != nil {

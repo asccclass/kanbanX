@@ -20,6 +20,21 @@ func (p Priority) Valid() bool {
 	return p == PriorityHigh || p == PriorityMedium || p == PriorityLow
 }
 
+// ─── GoalType ────────────────────────────────────────────────────────────────
+
+type GoalType string
+
+const (
+	GoalNone    GoalType = ""        // no goal classification
+	GoalWeekly  GoalType = "weekly"  // 每週目標
+	GoalMonthly GoalType = "monthly" // 每月目標
+	GoalYearly  GoalType = "yearly"  // 每年目標
+)
+
+func (g GoalType) Valid() bool {
+	return g == GoalNone || g == GoalWeekly || g == GoalMonthly || g == GoalYearly
+}
+
 // ─── Core Models ─────────────────────────────────────────────────────────────
 
 // Card represents a single task on the board.
@@ -29,6 +44,7 @@ type Card struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	Priority    Priority  `json:"priority"`
+	GoalType    GoalType  `json:"goalType"`
 	Assignee    string    `json:"assignee"`
 	Labels      []string  `json:"labels"`
 	Position    int       `json:"position"`
@@ -62,6 +78,7 @@ type AddCardRequest struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	Priority    Priority `json:"priority"`
+	GoalType    GoalType `json:"goalType"`
 	Assignee    string   `json:"assignee"`
 	Labels      []string `json:"labels"`
 }
@@ -70,6 +87,7 @@ type UpdateCardRequest struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	Priority    Priority `json:"priority"`
+	GoalType    GoalType `json:"goalType"`
 	Assignee    string   `json:"assignee"`
 	Labels      []string `json:"labels"`
 }
