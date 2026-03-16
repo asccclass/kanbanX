@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KanbanX — 智能專案看板</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js" defer></script>
+  <style>
+    /* ─────────────────────────────────────────────
+       CSS Custom Properties & Reset
+    ───────────────────────────────────────────── */
+    :root {
+      --bg-deep:      #04080f;
+      --bg-base:      #080d1a;
+      --bg-surface:   #0d1429;
+      --bg-card:      rgba(255,255,255,0.035);
+      --bg-card-h:    rgba(255,255,255,0.065);
+      --border:       rgba(255,255,255,0.07);
+      --border-h:     rgba(255,255,255,0.14);
+      --txt:          #e8eeff;
+      --txt-2:        #7e95c4;
+      --txt-3:        #3d5080;
+      --cyan:         #06c8e8;
+      --purple:       #9b6ffa;
+      --pink:         #f472b6;
+      --green:        #22c87a;
+      --amber:        #fbbf24;
+      --red:          #f87171;
+      --glow-cyan:    rgba(6,200,232,0.25);
+      --glow-purple:  rgba(155,111,250,0.25);
+      --p-high:       #f87171;
+      --p-med:        #fbbf24;
+      --p-low:        #22c87a;
+      --col-w:        300px;
+      --r:            14px;
+      --r-sm:         8px;
+      --nav-h:        62px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-deep);
+      color: var(--txt);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    /* Ambient background glow */
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      background:
+        radial-gradient(ellipse 60% 50% at 15% 15%, rgba(155,111,250,.07) 0%, transparent 100%),
+        radial-gradient(ellipse 60% 50% at 85% 85%, rgba(6,200,232,.05) 0%, transparent 100%);
+      pointer-events: none; z-index: 0;
+    }
+
+    /* ─────────────────────────────────────────────
+       NAVBAR
+    ───────────────────────────────────────────── */
+    .navbar {
+      position: sticky; top: 0; z-index: 200;
+      height: var(--nav-h);
+      display: flex; align-items: center; gap: 14px;
+      padding: 0 24px;
+      background: rgba(4,8,15,.82);
+      backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      text-decoration: none; flex-shrink: 0;
+    }
+    .logo-mark {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--purple) 0%, var(--cyan) 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px; box-shadow: 0 0 18px var(--glow-purple);
+    }
+    .logo-name {
+      font-size: 18px; font-weight: 700; letter-spacing: -.4px;
+      background: linear-gradient(90deg, var(--cyan), var(--purple));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .nav-sep { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
+    .board-name {
+      font-size: 14px; color: var(--txt-2); flex: 1; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .board-name strong { color: var(--txt); font-weight: 600; }
+    .nav-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+    /* Status pill */
+    .pill {
+      display: flex; align-items: center; gap: 5px;
+      padding: 4px 11px; border-radius: 20px;
+      font-size: 11.5px; font-weight: 500; white-space: nowrap;
+    }
+    .pill-ws.on  { background: rgba(6,200,232,.1);  border: 1px solid rgba(6,200,232,.22); color: var(--cyan); }
+    .pill-ws.off { background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.22); color: var(--red); }
+    .pill-users  { background: rgba(34,200,122,.1);  border: 1px solid rgba(34,200,122,.22); color: var(--green); }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+           animation: pulse 2.2s ease infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.75)} }
+
+    /* ─────────────────────────────────────────────
+       BUTTONS
+    ───────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 15px; border-radius: var(--r-sm);
+      font-size: 13px; font-weight: 500; cursor: pointer;
+      border: none; transition: all .18s ease;
+      white-space: nowrap; line-height: 1;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--purple), var(--cyan));
+      color: #fff; box-shadow: 0 2px 14px var(--glow-purple);
+    }
+    .btn-primary:hover { opacity:.88; transform:translateY(-1px); box-shadow: 0 6px 22px var(--glow-purple); }
+    .btn-ghost {
+      background: transparent; color: var(--txt-2);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { background: var(--bg-card-h); color: var(--txt); border-color: var(--border-h); }
+    .btn-sm { padding: 5px 12px; font-size: 12px; }
+    .btn-icon { padding: 6px; width: 28px; height: 28px; justify-content: center; border-radius: 7px; }
+
+    /* ─────────────────────────────────────────────
+       BOARD LAYOUT
+    ───────────────────────────────────────────── */
+    .board-wrap {
+      position: relative; z-index: 1;
+      display: flex; flex-direction: column;
+      min-height: calc(100vh - var(--nav-h));
+      padding: 20px 24px 32px;
+      gap: 14px;
+    }
+    .board-toolbar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .stat-chip {
+      padding: 3px 11px; border-radius: 20px;
+      font-size: 11.5px; color: var(--txt-2);
+      border: 1px solid var(--border);
+    }
+    .board-scroll {
+      overflow-x: auto; overflow-y: visible;
+      padding-bottom: 10px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,.08) transparent;
+    }
+    .board-scroll::-webkit-scrollbar { height: 4px; }
+    .board-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 2px; }
+    .board-cols {
+      display: flex; gap: 14px;
+      align-items: flex-start;
+      min-width: max-content;
+    }
+
+    /* ─────────────────────────────────────────────
+       COLUMN
+    ───────────────────────────────────────────── */
+    .col {
+      width: var(--col-w);
+      background: rgba(8,13,26,.75);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      display: flex; flex-direction: column;
+      max-height: calc(100vh - 150px);
+      transition: border-color .2s, box-shadow .2s;
+      flex-shrink: 0;
+    }
+    .col.drag-over {
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 1px var(--cyan), 0 0 28px var(--glow-cyan);
+    }
+    .col-head {
+      padding: 14px 14px 11px;
+      display: flex; align-items: center; gap: 9px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .col-bar { width: 3px; height: 18px; border-radius: 2px; flex-shrink: 0; }
+    .col-title { flex: 1; font-size: 13.5px; font-weight: 600; letter-spacing: .2px; }
+    .col-cnt {
+      padding: 2px 8px; border-radius: 10px;
+      background: rgba(255,255,255,.06);
+      font-size: 11px; color: var(--txt-2);
+    }
+    .cards-list {
+      padding: 10px 10px 4px;
+      display: flex; flex-direction: column; gap: 7px;
+      overflow-y: auto; flex: 1; min-height: 60px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,.06) transparent;
+    }
+    .cards-list::-webkit-scrollbar { width: 3px; }
+    .cards-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.06); }
+    .col-foot {
+      padding: 8px 10px 10px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .add-card-btn {
+      width: 100%;
+      background: transparent;
+      border: 1px dashed rgba(255,255,255,.08);
+      border-radius: var(--r-sm);
+      color: var(--txt-3);
+      padding: 7px; font-size: 12px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+      transition: all .18s;
+    }
+    .add-card-btn:hover {
+      border-color: var(--cyan); color: var(--cyan);
+      background: rgba(6,200,232,.05);
+    }
+
+    /* ─────────────────────────────────────────────
+       CARD
+    ───────────────────────────────────────────── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 11px 11px 9px;
+      cursor: grab; position: relative;
+      transition: all .18s ease;
+      overflow: hidden;
+    }
+    .card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    }
+    .card.p-high::before { background: var(--p-high); }
+    .card.p-medium::before { background: var(--p-med); }
+    .card.p-low::before { background: var(--p-low); }
+    .card:hover {
+      background: var(--bg-card-h);
+      border-color: var(--border-h);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 28px rgba(0,0,0,.35);
+    }
+    .card.dragging { opacity: .35; cursor: grabbing; }
+    .card.flash {
+      animation: flash-in .7s ease forwards;
+    }
+    @keyframes flash-in {
+      0%  { box-shadow: 0 0 0 2px var(--cyan); }
+      100%{ box-shadow: none; }
+    }
+    .card-labels {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 7px;
+    }
+    .lbl {
+      padding: 2px 7px; border-radius: 8px;
+      font-size: 10px; font-weight: 600; letter-spacing: .4px;
+      text-transform: uppercase;
+    }
+    /* Label colour rotation */
+    .lc0 { background: rgba(155,111,250,.14); color: #a78bfa; border: 1px solid rgba(155,111,250,.22); }
+    .lc1 { background: rgba(6,200,232,.14); color: #67e8f9; border: 1px solid rgba(6,200,232,.22); }
+    .lc2 { background: rgba(244,114,182,.14); color: #f9a8d4; border: 1px solid rgba(244,114,182,.22); }
+    .lc3 { background: rgba(251,191,36,.14); color: #fcd34d; border: 1px solid rgba(251,191,36,.22); }
+    .lc4 { background: rgba(34,200,122,.14); color: #6ee7b7; border: 1px solid rgba(34,200,122,.22); }
+    .lc5 { background: rgba(248,113,113,.14); color: #fca5a5; border: 1px solid rgba(248,113,113,.22); }
+
+    .card-title {
+      font-size: 13px; font-weight: 500; line-height: 1.45;
+      margin-bottom: 5px; color: var(--txt);
+    }
+    .card-desc {
+      font-size: 11.5px; color: var(--txt-3); line-height: 1.45;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden; margin-bottom: 8px;
+    }
+    .card-foot {
+      display: flex; align-items: center;
+      justify-content: space-between; gap: 6px;
+    }
+    .card-meta-l { display: flex; align-items: center; gap: 6px; }
+    .pbadge {
+      padding: 2px 7px; border-radius: 8px;
+      font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+    }
+    .pbadge.high   { background: rgba(248,113,113,.14); color: var(--p-high); border: 1px solid rgba(248,113,113,.22); }
+    .pbadge.medium { background: rgba(251,191,36,.14);  color: var(--p-med);  border: 1px solid rgba(251,191,36,.22); }
+    .pbadge.low    { background: rgba(34,200,122,.14);  color: var(--p-low);  border: 1px solid rgba(34,200,122,.22); }
+    .avatar {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--purple), var(--cyan));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700; color: #fff; flex-shrink: 0;
+    }
+    .card-acts {
+      display: flex; gap: 3px; opacity: 0; transition: opacity .18s;
+    }
+    .card:hover .card-acts { opacity: 1; }
+    .act-btn {
+      width: 23px; height: 23px; border-radius: 6px;
+      border: none; background: rgba(255,255,255,.06);
+      color: var(--txt-2); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; transition: all .15s;
+    }
+    .act-btn:hover            { background: rgba(255,255,255,.12); color: var(--txt); }
+    .act-btn.del:hover        { background: rgba(248,113,113,.15); color: var(--red); }
+
+    /* ─────────────────────────────────────────────
+       ADD COLUMN BUTTON
+    ───────────────────────────────────────────── */
+    .add-col-btn {
+      width: 230px; min-height: 110px; flex-shrink: 0;
+      background: rgba(255,255,255,.015);
+      border: 2px dashed rgba(255,255,255,.07);
+      border-radius: var(--r);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 8px;
+      cursor: pointer; color: var(--txt-3); font-size: 13px;
+      transition: all .2s;
+    }
+    .add-col-btn:hover {
+      border-color: rgba(155,111,250,.4);
+      color: var(--purple);
+      background: rgba(155,111,250,.04);
+    }
+    .add-col-icon { font-size: 24px; opacity: .45; }
+
+    /* ─────────────────────────────────────────────
+       MODAL
+    ───────────────────────────────────────────── */
+    .overlay {
+      position: fixed; inset: 0; z-index: 500;
+      background: rgba(0,0,0,.65);
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px;
+      opacity: 0; pointer-events: none;
+      transition: opacity .2s;
+    }
+    .overlay.on { opacity: 1; pointer-events: all; }
+    .modal {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-h);
+      border-radius: 18px;
+      width: 100%; max-width: 480px; max-height: 92vh;
+      overflow-y: auto;
+      transform: translateY(18px) scale(.97);
+      transition: transform .22s ease;
+      box-shadow: 0 28px 80px rgba(0,0,0,.55);
+    }
+    .overlay.on .modal { transform: none; }
+    .modal-head {
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .modal-title { font-size: 15px; font-weight: 600; }
+    .modal-x {
+      width: 30px; height: 30px; border-radius: 7px;
+      border: none; background: rgba(255,255,255,.06);
+      color: var(--txt-2); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; transition: all .15s;
+    }
+    .modal-x:hover { background: rgba(255,255,255,.1); color: var(--txt); }
+    .modal-body { padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; }
+    .modal-foot {
+      padding: 14px 22px;
+      border-top: 1px solid var(--border);
+      display: flex; gap: 9px; justify-content: flex-end;
+    }
+
+    /* ─────────────────────────────────────────────
+       FORM
+    ───────────────────────────────────────────── */
+    .fg { display: flex; flex-direction: column; gap: 5px; }
+    .flabel {
+      font-size: 11px; font-weight: 600; letter-spacing: .5px;
+      text-transform: uppercase; color: var(--txt-2);
+    }
+    .finput, .ftextarea, .fselect {
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 9px 13px;
+      color: var(--txt); font-size: 13.5px; font-family: inherit;
+      transition: all .18s; width: 100%;
+    }
+    .finput::placeholder, .ftextarea::placeholder { color: var(--txt-3); }
+    .finput:focus, .ftextarea:focus, .fselect:focus {
+      outline: none; border-color: var(--cyan);
+      background: rgba(6,200,232,.04);
+      box-shadow: 0 0 0 3px rgba(6,200,232,.1);
+    }
+    .ftextarea { resize: vertical; min-height: 76px; }
+    .fselect option { background: var(--bg-surface); }
+    .frow { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+
+    /* Color swatches */
+    .swatches { display: flex; gap: 9px; flex-wrap: wrap; }
+    .swatch {
+      width: 26px; height: 26px; border-radius: 6px; cursor: pointer;
+      border: 2px solid transparent; transition: transform .15s, border-color .15s;
+    }
+    .swatch:hover { transform: scale(1.15); }
+    .swatch.sel { border-color: #fff; }
+
+    /* ─────────────────────────────────────────────
+       TOAST
+    ───────────────────────────────────────────── */
+    .toast-wrap {
+      position: fixed; bottom: 22px; right: 22px;
+      z-index: 1000; display: flex; flex-direction: column; gap: 7px;
+    }
+    .toast {
+      padding: 10px 15px; border-radius: var(--r-sm);
+      font-size: 13px; display: flex; align-items: center; gap: 8px;
+      animation: toast-in .28s ease;
+      backdrop-filter: blur(8px); max-width: 300px;
+    }
+    .toast.ok  { background: rgba(34,200,122,.13); border: 1px solid rgba(34,200,122,.28); color: var(--green); }
+    .toast.inf { background: rgba(6,200,232,.13);  border: 1px solid rgba(6,200,232,.28);  color: var(--cyan);  }
+    .toast.err { background: rgba(248,113,113,.13); border: 1px solid rgba(248,113,113,.28); color: var(--red); }
+    @keyframes toast-in { from{opacity:0;transform:translateX(14px)} to{opacity:1;transform:none} }
+
+    /* ─────────────────────────────────────────────
+       LOADING
+    ───────────────────────────────────────────── */
+    .loading {
+      display: flex; align-items: center; justify-content: center;
+      gap: 12px; color: var(--txt-3); font-size: 14px; padding: 60px;
+    }
+    .spin {
+      width: 20px; height: 20px;
+      border: 2px solid var(--border); border-top-color: var(--cyan);
+      border-radius: 50%; animation: sp .75s linear infinite;
+    }
+    @keyframes sp { to{transform:rotate(360deg)} }
+
+    /* ─────────────────────────────────────────────
+       RESPONSIVE
+    ───────────────────────────────────────────── */
+    @media(max-width: 768px) {
+      .navbar { padding: 0 14px; gap: 10px; }
+      .board-wrap { padding: 14px 14px 28px; }
+      :root { --col-w: 262px; }
+      .frow { grid-template-columns: 1fr; }
+      .pill-ws span:last-child { display: none; }
+    }
+    @media(max-width: 480px) {
+      .logo-name { display: none; }
+      :root { --col-w: 240px; }
+      .board-toolbar { display: none; }
+    }
+
+    /* Scrollbar global */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.07); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════ NAVBAR ════════════════════════════════ -->
+<nav class="navbar">
+  <a class="logo" href="/">
+    <div class="logo-mark">⬡</div>
+    <span class="logo-name">KanbanX</span>
+  </a>
+  <div class="nav-sep"></div>
+  <div class="board-name">
+    <strong id="board-title">載入中…</strong>
+  </div>
+  <div class="nav-right">
+    <div class="pill pill-ws off" id="ws-pill">
+      <span class="dot"></span>
+      <span id="ws-txt">連線中</span>
+    </div>
+    <div class="pill pill-users">
+      <span class="dot"></span>
+      <span id="user-cnt">1</span>
+      <span>&nbsp;人在線</span>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="openColModal()">＋ 新增欄位</button>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════ BOARD ════════════════════════════════ -->
+<div class="board-wrap">
+  <div class="board-toolbar" id="toolbar">
+    <div class="stat-chip" id="stat-cols">—</div>
+    <div class="stat-chip" id="stat-cards">—</div>
+  </div>
+  <div class="board-scroll">
+    <div class="board-cols" id="cols">
+      <div class="loading"><div class="spin"></div>載入看板資料…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════ CARD MODAL ═══════════════════════════ -->
+<div class="overlay" id="card-ov">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="card-modal-lbl">
+    <div class="modal-head">
+      <span class="modal-title" id="card-modal-lbl">新增任務</span>
+      <button class="modal-x" onclick="closeCardModal()" aria-label="關閉">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="flabel" for="c-title">任務標題 *</label>
+        <input class="finput" id="c-title" type="text" placeholder="輸入任務標題…" autocomplete="off" />
+      </div>
+      <div class="fg">
+        <label class="flabel" for="c-desc">描述</label>
+        <textarea class="ftextarea" id="c-desc" placeholder="輸入詳細描述（選填）…"></textarea>
+      </div>
+      <div class="frow">
+        <div class="fg">
+          <label class="flabel" for="c-pri">優先級</label>
+          <select class="fselect" id="c-pri">
+            <option value="high">🔴 高優先</option>
+            <option value="medium" selected>🟡 中優先</option>
+            <option value="low">🟢 低優先</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="flabel" for="c-asgn">負責人</label>
+          <input class="finput" id="c-asgn" type="text" placeholder="輸入姓名" autocomplete="off" />
+        </div>
+      </div>
+      <div class="fg">
+        <label class="flabel" for="c-labels">標籤（逗號分隔）</label>
+        <input class="finput" id="c-labels" type="text" placeholder="前端, Bug, 緊急…" autocomplete="off" />
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeCardModal()">取消</button>
+      <button class="btn btn-primary" id="card-save-btn" onclick="saveCard()">新增任務</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════ COLUMN MODAL ═════════════════════════ -->
+<div class="overlay" id="col-ov">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="col-modal-lbl">
+    <div class="modal-head">
+      <span class="modal-title" id="col-modal-lbl">新增欄位</span>
+      <button class="modal-x" onclick="closeColModal()" aria-label="關閉">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="flabel" for="col-title-inp">欄位名稱 *</label>
+        <input class="finput" id="col-title-inp" type="text"
+               placeholder="例：測試中、暫緩、封存…" autocomplete="off" />
+      </div>
+      <div class="fg">
+        <label class="flabel">欄位顏色</label>
+        <div class="swatches" id="swatches">
+          <div class="swatch sel" data-c="#6366f1" style="background:#6366f1"></div>
+          <div class="swatch"     data-c="#06b6d4" style="background:#06b6d4"></div>
+          <div class="swatch"     data-c="#8b5cf6" style="background:#8b5cf6"></div>
+          <div class="swatch"     data-c="#f59e0b" style="background:#f59e0b"></div>
+          <div class="swatch"     data-c="#10b981" style="background:#10b981"></div>
+          <div class="swatch"     data-c="#ec4899" style="background:#ec4899"></div>
+          <div class="swatch"     data-c="#ef4444" style="background:#ef4444"></div>
+          <div class="swatch"     data-c="#06c8e8" style="background:#06c8e8"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeColModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveCol()">新增欄位</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════ TOASTS ═══════════════════════════════ -->
+<div class="toast-wrap" id="toasts"></div>
+
+<!-- ═══════════════════════════════ SCRIPT ═══════════════════════════════ -->
+<script>
+/* ─── State ─────────────────────────────────────────────── */
+let board       = null;
+let ws          = null;
+let wsOk        = false;
+let reconnTimer = null;
+let drag        = { cardId: null, fromCol: null };
+let cardMode    = 'add';   // 'add' | 'edit'
+let editId      = null;
+let addColId    = null;
+let selColor    = '#6366f1';
+const lcMap     = {};
+const LC        = ['lc0','lc1','lc2','lc3','lc4','lc5'];
+
+/* ─── WebSocket ─────────────────────────────────────────── */
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+  ws.onopen = () => {
+    wsOk = true;
+    setWS(true);
+    toast('已連線至伺服器', 'inf');
+    clearTimeout(reconnTimer);
+  };
+
+  ws.onmessage = e => {
+    try { handle(JSON.parse(e.data)); } catch(_) {}
+  };
+
+  ws.onclose = () => {
+    wsOk = false;
+    setWS(false);
+    reconnTimer = setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => { ws.close(); };
+}
+
+function handle(msg) {
+  if (msg.type === 'board_update') {
+    const prev = board;
+    board = msg.payload;
+    renderBoard(prev);
+    refreshStats();
+  } else if (msg.type === 'online_count') {
+    document.getElementById('user-cnt').textContent = msg.payload;
+  }
+}
+
+function setWS(ok) {
+  const p = document.getElementById('ws-pill');
+  const t = document.getElementById('ws-txt');
+  p.className = 'pill pill-ws ' + (ok ? 'on' : 'off');
+  t.textContent = ok ? '已連線' : '重連中…';
+}
+
+/* ─── Board Render ──────────────────────────────────────── */
+function renderBoard(prev) {
+  if (!board) return;
+  document.getElementById('board-title').textContent = board.title || '看板';
+
+  const wrap = document.getElementById('cols');
+  wrap.innerHTML = '';
+
+  (board.columns || []).forEach(col => {
+    wrap.appendChild(makeCol(col));
+  });
+
+  // "Add column" ghost button
+  const btn = document.createElement('button');
+  btn.className = 'add-col-btn';
+  btn.innerHTML = '<div class="add-col-icon">⊞</div><span>新增欄位</span>';
+  btn.onclick = openColModal;
+  wrap.appendChild(btn);
+}
+
+function makeCol(col) {
+  const el = document.createElement('div');
+  el.className = 'col';
+  el.dataset.id = col.id;
+
+  el.addEventListener('dragover', e => {
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+    el.classList.add('drag-over');
+  });
+  el.addEventListener('dragleave', e => {
+    if (!el.contains(e.relatedTarget)) el.classList.remove('drag-over');
+  });
+  el.addEventListener('drop', e => {
+    e.preventDefault(); el.classList.remove('drag-over');
+    if (drag.cardId && drag.fromCol !== col.id)
+      moveCard(drag.cardId, drag.fromCol, col.id, -1);
+    drag = { cardId: null, fromCol: null };
+  });
+
+  const cnt = (col.cards || []).length;
+  el.innerHTML = `
+    <div class="col-head">
+      <div class="col-bar" style="background:${col.color||'#6366f1'}"></div>
+      <span class="col-title">${esc(col.title)}</span>
+      <span class="col-cnt">${cnt}</span>
+    </div>
+    <div class="cards-list" id="cl-${col.id}"></div>
+    <div class="col-foot">
+      <button class="add-card-btn" onclick="openCardModal('${col.id}')">＋ 新增任務</button>
+    </div>`;
+
+  const list = el.querySelector('#cl-' + col.id);
+  (col.cards || []).forEach(c => list.appendChild(makeCard(c, col.id)));
+  return el;
+}
+
+function makeCard(c, colId) {
+  const el = document.createElement('div');
+  el.className = `card p-${c.priority || 'medium'}`;
+  el.dataset.id = c.id;
+  el.draggable = true;
+
+  el.addEventListener('dragstart', e => {
+    drag = { cardId: c.id, fromCol: colId };
+    el.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  el.addEventListener('dragend', () => {
+    el.classList.remove('dragging');
+    document.querySelectorAll('.col').forEach(c => c.classList.remove('drag-over'));
+  });
+
+  const labels = (c.labels || []).map(l => {
+    if (!lcMap[l]) { const k = Object.keys(lcMap).length; lcMap[l] = LC[k % LC.length]; }
+    return `<span class="lbl ${lcMap[l]}">${esc(l)}</span>`;
+  }).join('');
+
+  const avt = c.assignee
+    ? `<div class="avatar" title="${esc(c.assignee)}">${c.assignee.charAt(0).toUpperCase()}</div>` : '';
+  const desc = c.description
+    ? `<div class="card-desc">${esc(c.description)}</div>` : '';
+  const pri = { high:'高', medium:'中', low:'低' }[c.priority] || '中';
+
+  el.innerHTML = `
+    ${labels ? `<div class="card-labels">${labels}</div>` : ''}
+    <div class="card-title">${esc(c.title)}</div>
+    ${desc}
+    <div class="card-foot">
+      <div class="card-meta-l">
+        <span class="pbadge ${c.priority||'medium'}">${pri}</span>
+        ${avt}
+      </div>
+      <div class="card-acts">
+        <button class="act-btn" title="編輯" onclick="openEditModal('${c.id}')">✎</button>
+        <button class="act-btn del" title="刪除" onclick="delCard('${c.id}')">✕</button>
+      </div>
+    </div>`;
+  return el;
+}
+
+function refreshStats() {
+  if (!board) return;
+  let total = 0;
+  board.columns.forEach(c => total += (c.cards||[]).length);
+  document.getElementById('stat-cols').textContent  = `📋 ${board.columns.length} 個欄位`;
+  document.getElementById('stat-cards').textContent = `📌 ${total} 個任務`;
+}
+
+/* ─── Escape ────────────────────────────────────────────── */
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ─── Card Modal ────────────────────────────────────────── */
+function openCardModal(colId) {
+  cardMode = 'add'; addColId = colId; editId = null;
+  document.getElementById('card-modal-lbl').textContent = '新增任務';
+  document.getElementById('card-save-btn').textContent  = '新增任務';
+  document.getElementById('c-title').value  = '';
+  document.getElementById('c-desc').value   = '';
+  document.getElementById('c-pri').value    = 'medium';
+  document.getElementById('c-asgn').value   = '';
+  document.getElementById('c-labels').value = '';
+  openOv('card-ov');
+  setTimeout(() => document.getElementById('c-title').focus(), 120);
+}
+
+function openEditModal(cardId) {
+  let found = null;
+  if (board) for (const col of board.columns)
+    for (const c of (col.cards||[])) if (c.id === cardId) { found = c; break; }
+  if (!found) return;
+  cardMode = 'edit'; editId = cardId;
+  document.getElementById('card-modal-lbl').textContent = '編輯任務';
+  document.getElementById('card-save-btn').textContent  = '儲存變更';
+  document.getElementById('c-title').value  = found.title  || '';
+  document.getElementById('c-desc').value   = found.description || '';
+  document.getElementById('c-pri').value    = found.priority || 'medium';
+  document.getElementById('c-asgn').value   = found.assignee || '';
+  document.getElementById('c-labels').value = (found.labels||[]).join(', ');
+  openOv('card-ov');
+  setTimeout(() => document.getElementById('c-title').focus(), 120);
+}
+
+function closeCardModal() { closeOv('card-ov'); }
+
+async function saveCard() {
+  const title = document.getElementById('c-title').value.trim();
+  if (!title) { toast('請輸入任務標題', 'err'); document.getElementById('c-title').focus(); return; }
+
+  const raw    = document.getElementById('c-labels').value.trim();
+  const labels = raw ? raw.split(',').map(l=>l.trim()).filter(Boolean) : [];
+  const body   = {
+    title,
+    description: document.getElementById('c-desc').value.trim(),
+    priority:    document.getElementById('c-pri').value,
+    assignee:    document.getElementById('c-asgn').value.trim(),
+    labels,
+  };
+
+  try {
+    if (cardMode === 'add') {
+      body.columnId = addColId;
+      await api('/api/cards', 'POST', body);
+      toast('任務已新增 ✓', 'ok');
+    } else {
+      await api(`/api/cards/${editId}`, 'PUT', body);
+      toast('任務已更新 ✓', 'ok');
+    }
+    closeCardModal();
+  } catch(e) { toast('操作失敗：' + e.message, 'err'); }
+}
+
+/* ─── Delete Card ───────────────────────────────────────── */
+async function delCard(id) {
+  if (!confirm('確定刪除此任務？')) return;
+  try { await api(`/api/cards/${id}`, 'DELETE'); toast('任務已刪除', 'ok'); }
+  catch(e) { toast('刪除失敗：' + e.message, 'err'); }
+}
+
+/* ─── Move Card ─────────────────────────────────────────── */
+async function moveCard(cardId, fromCol, toCol, toIndex) {
+  try { await api('/api/cards/move', 'POST', { cardId, fromColumnId: fromCol, toColumnId: toCol, toIndex }); }
+  catch(e) { toast('移動失敗：' + e.message, 'err'); }
+}
+
+/* ─── Column Modal ──────────────────────────────────────── */
+function openColModal() {
+  document.getElementById('col-title-inp').value = '';
+  selColor = '#6366f1';
+  document.querySelectorAll('.swatch').forEach(s => {
+    s.classList.toggle('sel', s.dataset.c === selColor);
+  });
+  openOv('col-ov');
+  setTimeout(() => document.getElementById('col-title-inp').focus(), 120);
+}
+function closeColModal() { closeOv('col-ov'); }
+
+async function saveCol() {
+  const title = document.getElementById('col-title-inp').value.trim();
+  if (!title) { toast('請輸入欄位名稱', 'err'); return; }
+  try {
+    await api('/api/columns', 'POST', { title, color: selColor });
+    toast('欄位已新增 ✓', 'ok');
+    closeColModal();
+  } catch(e) { toast('新增欄位失敗：' + e.message, 'err'); }
+}
+
+// Colour swatch picker
+document.querySelectorAll('.swatch').forEach(s => {
+  s.addEventListener('click', () => {
+    selColor = s.dataset.c;
+    document.querySelectorAll('.swatch').forEach(x => x.classList.remove('sel'));
+    s.classList.add('sel');
+  });
+});
+
+/* ─── Modal Helpers ─────────────────────────────────────── */
+function openOv(id)  { document.getElementById(id).classList.add('on'); document.body.style.overflow='hidden'; }
+function closeOv(id) { document.getElementById(id).classList.remove('on'); document.body.style.overflow=''; }
+
+document.querySelectorAll('.overlay').forEach(ov => {
+  ov.addEventListener('click', e => { if (e.target === ov) { ov.classList.remove('on'); document.body.style.overflow=''; } });
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  document.querySelectorAll('.overlay.on').forEach(o => { o.classList.remove('on'); document.body.style.overflow=''; });
+});
+
+/* ─── API ───────────────────────────────────────────────── */
+async function api(url, method='GET', body=null) {
+  const r = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error(t || r.statusText); }
+  return r.json().catch(() => null);
+}
+
+/* ─── Toast ─────────────────────────────────────────────── */
+function toast(msg, type='inf') {
+  const c = document.getElementById('toasts');
+  const d = document.createElement('div');
+  d.className = 'toast ' + type;
+  d.innerHTML = `<span>${{ok:'✓',inf:'ℹ',err:'✕'}[type]||'ℹ'}</span><span>${esc(msg)}</span>`;
+  c.appendChild(d);
+  setTimeout(() => { d.style.cssText='opacity:0;transform:translateX(14px);transition:all .28s'; setTimeout(()=>d.remove(),300); }, 2800);
+}
+
+/* ─── Boot ───────────────────────────────────────────────── */
+connect();
+</script>
+</body>
+</html>

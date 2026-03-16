@@ -1,0 +1,5 @@
+*.exe
+*.old
+*.swp
+*.bak
+*.pyc
