@@ -31,7 +31,7 @@
       --p-high:       #f87171;
       --p-med:        #fbbf24;
       --p-low:        #22c87a;
-      --col-w:        300px;
+      --col-w:        320px;
       --r:            14px;
       --r-sm:         8px;
       --nav-h:        62px;
@@ -97,8 +97,9 @@
       padding: 4px 11px; border-radius: 20px;
       font-size: 11.5px; font-weight: 500; white-space: nowrap;
     }
-    .pill-ws.on  { background: rgba(6,200,232,.1);  border: 1px solid rgba(6,200,232,.22); color: var(--cyan); }
-    .pill-ws.off { background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.22); color: var(--red); }
+    .pill-ws.on   { background: rgba(6,200,232,.1);   border: 1px solid rgba(6,200,232,.22);   color: var(--cyan); }
+    .pill-ws.off  { background: rgba(248,113,113,.1);  border: 1px solid rgba(248,113,113,.22);  color: var(--red); }
+    .pill-ws.warn { background: rgba(251,191,36,.1);   border: 1px solid rgba(251,191,36,.28);   color: var(--amber); }
     .pill-users  { background: rgba(34,200,122,.1);  border: 1px solid rgba(34,200,122,.22); color: var(--green); }
     .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor;
            animation: pulse 2.2s ease infinite; }
@@ -219,93 +220,212 @@
     }
 
     /* ─────────────────────────────────────────────
-       CARD
+       CARD  —  glassmorphism
     ───────────────────────────────────────────── */
     .card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--r-sm);
-      padding: 11px 11px 9px;
+      /* Glass base */
+      background: linear-gradient(
+        135deg,
+        rgba(255,255,255,.08) 0%,
+        rgba(255,255,255,.04) 100%
+      );
+      backdrop-filter: blur(18px) saturate(160%);
+      -webkit-backdrop-filter: blur(18px) saturate(160%);
+      border: 1px solid rgba(255,255,255,.13);
+      border-radius: 12px;
+      padding: 14px 14px 11px;
       cursor: grab; position: relative;
-      transition: all .18s ease;
+      transition: all .22s ease;
       overflow: hidden;
+      /* Subtle inner-top shine */
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.12),
+        0 4px 16px rgba(0,0,0,.25);
     }
+    /* Priority accent bar */
     .card::before {
-      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      border-radius: 12px 12px 0 0;
     }
-    .card.p-high::before { background: var(--p-high); }
-    .card.p-medium::before { background: var(--p-med); }
-    .card.p-low::before { background: var(--p-low); }
+    .card.p-high::before   { background: linear-gradient(90deg, var(--p-high), rgba(248,113,113,.3)); }
+    .card.p-medium::before { background: linear-gradient(90deg, var(--p-med),  rgba(251,191,36,.3)); }
+    .card.p-low::before    { background: linear-gradient(90deg, var(--p-low),  rgba(34,200,122,.3)); }
+    /* Hover — brighter glass + lift */
     .card:hover {
-      background: var(--bg-card-h);
-      border-color: var(--border-h);
-      transform: translateY(-2px);
-      box-shadow: 0 8px 28px rgba(0,0,0,.35);
+      background: linear-gradient(
+        135deg,
+        rgba(255,255,255,.14) 0%,
+        rgba(255,255,255,.07) 100%
+      );
+      border-color: rgba(255,255,255,.22);
+      transform: translateY(-3px);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.18),
+        0 12px 36px rgba(0,0,0,.40),
+        0 0 0 1px rgba(155,111,250,.15);
     }
-    .card.dragging { opacity: .35; cursor: grabbing; }
-    .card.flash {
-      animation: flash-in .7s ease forwards;
-    }
+    .card.dragging { opacity: .3; cursor: grabbing; transform: scale(.97); }
+    .card.flash { animation: flash-in .8s ease forwards; }
     @keyframes flash-in {
-      0%  { box-shadow: 0 0 0 2px var(--cyan); }
-      100%{ box-shadow: none; }
+      0%   { box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 0 0 2px var(--cyan), 0 0 20px rgba(6,200,232,.3); }
+      100% { box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 4px 16px rgba(0,0,0,.25); }
     }
+
     .card-labels {
-      display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 7px;
+      display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 9px;
     }
     .lbl {
-      padding: 2px 7px; border-radius: 8px;
-      font-size: 10px; font-weight: 600; letter-spacing: .4px;
+      padding: 3px 9px; border-radius: 8px;
+      font-size: 11.5px; font-weight: 600; letter-spacing: .35px;
       text-transform: uppercase;
+      backdrop-filter: blur(6px);
     }
     /* Label colour rotation */
-    .lc0 { background: rgba(155,111,250,.14); color: #a78bfa; border: 1px solid rgba(155,111,250,.22); }
-    .lc1 { background: rgba(6,200,232,.14); color: #67e8f9; border: 1px solid rgba(6,200,232,.22); }
-    .lc2 { background: rgba(244,114,182,.14); color: #f9a8d4; border: 1px solid rgba(244,114,182,.22); }
-    .lc3 { background: rgba(251,191,36,.14); color: #fcd34d; border: 1px solid rgba(251,191,36,.22); }
-    .lc4 { background: rgba(34,200,122,.14); color: #6ee7b7; border: 1px solid rgba(34,200,122,.22); }
-    .lc5 { background: rgba(248,113,113,.14); color: #fca5a5; border: 1px solid rgba(248,113,113,.22); }
+    .lc0 { background: rgba(155,111,250,.18); color: #c4b5fd; border: 1px solid rgba(155,111,250,.28); }
+    .lc1 { background: rgba(6,200,232,.18);   color: #67e8f9; border: 1px solid rgba(6,200,232,.28); }
+    .lc2 { background: rgba(244,114,182,.18); color: #f9a8d4; border: 1px solid rgba(244,114,182,.28); }
+    .lc3 { background: rgba(251,191,36,.18);  color: #fcd34d; border: 1px solid rgba(251,191,36,.28); }
+    .lc4 { background: rgba(34,200,122,.18);  color: #6ee7b7; border: 1px solid rgba(34,200,122,.28); }
+    .lc5 { background: rgba(248,113,113,.18); color: #fca5a5; border: 1px solid rgba(248,113,113,.28); }
 
     .card-title {
-      font-size: 13px; font-weight: 500; line-height: 1.45;
-      margin-bottom: 5px; color: var(--txt);
+      font-size: 15px; font-weight: 600; line-height: 1.45;
+      margin-bottom: 6px; color: var(--txt);
+      text-shadow: 0 1px 4px rgba(0,0,0,.35);
     }
     .card-desc {
-      font-size: 11.5px; color: var(--txt-3); line-height: 1.45;
+      font-size: 13px; color: var(--txt-2); line-height: 1.5;
       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-      overflow: hidden; margin-bottom: 8px;
+      overflow: hidden; margin-bottom: 10px;
     }
     .card-foot {
       display: flex; align-items: center;
       justify-content: space-between; gap: 6px;
     }
-    .card-meta-l { display: flex; align-items: center; gap: 6px; }
+    .card-meta-l { display: flex; align-items: center; gap: 7px; }
     .pbadge {
-      padding: 2px 7px; border-radius: 8px;
-      font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+      padding: 3px 9px; border-radius: 8px;
+      font-size: 11.5px; font-weight: 700; letter-spacing: .35px;
+      text-transform: uppercase; backdrop-filter: blur(6px);
     }
-    .pbadge.high   { background: rgba(248,113,113,.14); color: var(--p-high); border: 1px solid rgba(248,113,113,.22); }
-    .pbadge.medium { background: rgba(251,191,36,.14);  color: var(--p-med);  border: 1px solid rgba(251,191,36,.22); }
-    .pbadge.low    { background: rgba(34,200,122,.14);  color: var(--p-low);  border: 1px solid rgba(34,200,122,.22); }
+    .pbadge.high   { background: rgba(248,113,113,.18); color: var(--p-high); border: 1px solid rgba(248,113,113,.28); }
+    .pbadge.medium { background: rgba(251,191,36,.18);  color: var(--p-med);  border: 1px solid rgba(251,191,36,.28); }
+    .pbadge.low    { background: rgba(34,200,122,.18);  color: var(--p-low);  border: 1px solid rgba(34,200,122,.28); }
     .avatar {
-      width: 22px; height: 22px; border-radius: 50%;
+      width: 26px; height: 26px; border-radius: 50%;
       background: linear-gradient(135deg, var(--purple), var(--cyan));
       display: flex; align-items: center; justify-content: center;
-      font-size: 9px; font-weight: 700; color: #fff; flex-shrink: 0;
+      font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0;
+      box-shadow: 0 0 10px rgba(155,111,250,.4);
     }
     .card-acts {
-      display: flex; gap: 3px; opacity: 0; transition: opacity .18s;
+      display: flex; gap: 4px; opacity: 0; transition: opacity .18s;
     }
     .card:hover .card-acts { opacity: 1; }
     .act-btn {
-      width: 23px; height: 23px; border-radius: 6px;
-      border: none; background: rgba(255,255,255,.06);
+      width: 26px; height: 26px; border-radius: 7px;
+      border: none;
+      background: rgba(255,255,255,.08);
+      backdrop-filter: blur(8px);
       color: var(--txt-2); cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      font-size: 12px; transition: all .15s;
+      font-size: 13px; transition: all .15s;
     }
-    .act-btn:hover            { background: rgba(255,255,255,.12); color: var(--txt); }
-    .act-btn.del:hover        { background: rgba(248,113,113,.15); color: var(--red); }
+    .act-btn:hover     { background: rgba(255,255,255,.16); color: var(--txt); }
+    .act-btn.del:hover { background: rgba(248,113,113,.2);  color: var(--red); }
+
+    /* ─────────────────────────────────────────────
+       CARD DETAIL DRAWER
+    ───────────────────────────────────────────── */
+    .drawer-mask {
+      position: fixed; inset: 0; z-index: 400;
+      background: rgba(0,0,0,.55);
+      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+      opacity: 0; pointer-events: none;
+      transition: opacity .28s ease;
+    }
+    .drawer-mask.on { opacity: 1; pointer-events: all; }
+    .drawer {
+      position: fixed; top: 0; right: 0; bottom: 0; z-index: 401;
+      width: min(480px, 100vw);
+      background: linear-gradient(160deg, rgba(13,20,41,.97) 0%, rgba(8,13,26,.99) 100%);
+      backdrop-filter: blur(32px) saturate(160%);
+      -webkit-backdrop-filter: blur(32px) saturate(160%);
+      border-left: 1px solid rgba(255,255,255,.1);
+      box-shadow: -20px 0 60px rgba(0,0,0,.5);
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform .32s cubic-bezier(.4,0,.2,1);
+      overflow: hidden;
+    }
+    .drawer-mask.on .drawer { transform: translateX(0); }
+    .drawer-stripe { height: 4px; flex-shrink: 0; transition: background .3s; }
+    .drawer-stripe.p-high   { background: linear-gradient(90deg, var(--p-high), rgba(248,113,113,.2)); }
+    .drawer-stripe.p-medium { background: linear-gradient(90deg, var(--p-med),  rgba(251,191,36,.2)); }
+    .drawer-stripe.p-low    { background: linear-gradient(90deg, var(--p-low),  rgba(34,200,122,.2)); }
+    .drawer-head {
+      padding: 18px 22px 14px;
+      display: flex; align-items: flex-start; gap: 12px;
+      border-bottom: 1px solid rgba(255,255,255,.07); flex-shrink: 0;
+    }
+    .drawer-head-main { flex: 1; min-width: 0; }
+    .drawer-col-path {
+      font-size: 11px; font-weight: 600; letter-spacing: .6px;
+      text-transform: uppercase; color: var(--txt-3);
+      margin-bottom: 8px; display: flex; align-items: center; gap: 5px;
+    }
+    .drawer-col-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .drawer-title { font-size: 19px; font-weight: 700; line-height: 1.35; color: var(--txt); word-break: break-word; }
+    .drawer-x {
+      width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+      border: none; background: rgba(255,255,255,.06);
+      color: var(--txt-2); cursor: pointer; font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .15s; margin-top: 2px;
+    }
+    .drawer-x:hover { background: rgba(255,255,255,.12); color: var(--txt); }
+    .drawer-body {
+      flex: 1; overflow-y: auto; padding: 22px 22px 10px;
+      display: flex; flex-direction: column; gap: 22px;
+      scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.07) transparent;
+    }
+    .drawer-body::-webkit-scrollbar { width: 4px; }
+    .drawer-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.07); border-radius: 2px; }
+    .drawer-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .drawer-field { display: flex; flex-direction: column; gap: 6px; }
+    .drawer-flabel { font-size: 10.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--txt-3); }
+    .drawer-fval { font-size: 14px; color: var(--txt); display: flex; align-items: center; gap: 7px; }
+    .drawer-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--purple), var(--cyan));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; color: #fff;
+      box-shadow: 0 0 12px rgba(155,111,250,.35); flex-shrink: 0;
+    }
+    .drawer-empty { color: var(--txt-3); font-style: italic; font-size: 13px; }
+    .drawer-desc-box {
+      background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+      border-radius: 10px; padding: 14px 16px;
+      font-size: 14.5px; line-height: 1.7; color: var(--txt-2);
+      white-space: pre-wrap; word-break: break-word; min-height: 60px;
+    }
+    .drawer-desc-box.empty { color: var(--txt-3); font-style: italic; }
+    .drawer-labels { display: flex; flex-wrap: wrap; gap: 7px; }
+    .drawer-times {
+      display: flex; gap: 18px; flex-wrap: wrap;
+      padding-top: 6px; border-top: 1px solid rgba(255,255,255,.06);
+    }
+    .drawer-time-item { display: flex; flex-direction: column; gap: 3px; }
+    .drawer-time-lbl { font-size: 10px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--txt-3); }
+    .drawer-time-val { font-size: 12.5px; color: var(--txt-2); }
+    .drawer-foot {
+      padding: 14px 22px 20px; border-top: 1px solid rgba(255,255,255,.07);
+      display: flex; gap: 10px; flex-shrink: 0;
+    }
+    .btn-danger {
+      background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.25); color: var(--red);
+    }
+    .btn-danger:hover { background: rgba(248,113,113,.22); border-color: rgba(248,113,113,.4); }
 
     /* ─────────────────────────────────────────────
        ADD COLUMN BUTTON
@@ -426,6 +546,63 @@
     @keyframes toast-in { from{opacity:0;transform:translateX(14px)} to{opacity:1;transform:none} }
 
     /* ─────────────────────────────────────────────
+       RECONNECT BANNER
+    ───────────────────────────────────────────── */
+    .reconn-banner {
+      /* top: 0 ensures translateY(-100%) slides fully above the viewport */
+      position: fixed; top: 0; left: 0; right: 0; z-index: 300;
+      background: linear-gradient(90deg, rgba(248,113,113,.15), rgba(251,191,36,.12));
+      border-bottom: 1px solid rgba(248,113,113,.25);
+      backdrop-filter: blur(10px);
+      padding: 10px 20px;
+      display: flex; align-items: center; gap: 12px;
+      font-size: 13px; color: #fca5a5;
+      /* hidden: slide banner entirely off the top of the screen */
+      transform: translateY(-110%);
+      transition: transform .32s cubic-bezier(.4,0,.2,1);
+      pointer-events: none;
+    }
+    /* shown: slide down so banner sits just below the sticky navbar */
+    .reconn-banner.show {
+      transform: translateY(var(--nav-h));
+      pointer-events: all;
+    }
+    .reconn-banner.connected {
+      background: linear-gradient(90deg, rgba(34,200,122,.13), rgba(6,200,232,.09));
+      border-color: rgba(34,200,122,.25); color: #6ee7b7;
+    }
+    /* Status dot — replaces the old spinning icon */
+    .reconn-dot {
+      width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+      background: var(--red);
+      box-shadow: 0 0 6px var(--red);
+      transition: background .4s, box-shadow .4s;
+    }
+    .reconn-dot.connected {
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+    }
+    .reconn-dot.retrying {
+      background: var(--amber);
+      box-shadow: 0 0 6px var(--amber);
+      animation: dot-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes dot-pulse {
+      0%,100% { opacity: 1;   transform: scale(1); }
+      50%      { opacity: .45; transform: scale(.7); }
+    }
+    .reconn-countdown {
+      margin-left: auto; font-size: 12px; opacity: .7;
+      font-variant-numeric: tabular-nums;
+    }
+    .reconn-retry-btn {
+      padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+      border: 1px solid rgba(248,113,113,.35); background: rgba(248,113,113,.1);
+      color: #fca5a5; transition: all .15s;
+    }
+    .reconn-retry-btn:hover { background: rgba(248,113,113,.22); }
+
+    /* ─────────────────────────────────────────────
        LOADING
     ───────────────────────────────────────────── */
     .loading {
@@ -486,6 +663,14 @@
     <button class="btn btn-primary btn-sm" onclick="openColModal()">＋ 新增欄位</button>
   </div>
 </nav>
+
+<!-- ══════════════════════════ RECONNECT BANNER ══════════════════════════ -->
+<div class="reconn-banner" id="reconn-banner" role="alert" aria-live="polite">
+  <span class="reconn-dot retrying" id="reconn-dot"></span>
+  <span id="reconn-msg">WebSocket 已斷線，嘗試重新連線中…</span>
+  <span class="reconn-countdown" id="reconn-countdown"></span>
+  <button class="reconn-retry-btn" onclick="retryNow()">立即重試</button>
+</div>
 
 <!-- ═══════════════════════════════ BOARD ════════════════════════════════ -->
 <div class="board-wrap">
@@ -576,6 +761,66 @@
   </div>
 </div>
 
+<!-- ═══════════════════════ CARD DETAIL DRAWER ═══════════════════════ -->
+<div class="drawer-mask" id="drawer-mask">
+  <div class="drawer" id="drawer" role="complementary" aria-label="任務詳情">
+    <div class="drawer-stripe" id="drawer-stripe"></div>
+    <div class="drawer-head">
+      <div class="drawer-head-main">
+        <div class="drawer-col-path" id="drawer-col-path">
+          <div class="drawer-col-dot" id="drawer-col-dot"></div>
+          <span id="drawer-col-name"></span>
+        </div>
+        <div class="drawer-title" id="drawer-title"></div>
+      </div>
+      <button class="drawer-x" onclick="closeDrawer()" aria-label="關閉">✕</button>
+    </div>
+    <div class="drawer-body">
+
+      <!-- Priority + Assignee -->
+      <div class="drawer-meta">
+        <div class="drawer-field">
+          <div class="drawer-flabel">優先級</div>
+          <div class="drawer-fval" id="drawer-priority"></div>
+        </div>
+        <div class="drawer-field">
+          <div class="drawer-flabel">負責人</div>
+          <div class="drawer-fval" id="drawer-assignee"></div>
+        </div>
+      </div>
+
+      <!-- Labels -->
+      <div class="drawer-field" id="drawer-labels-wrap">
+        <div class="drawer-flabel">標籤</div>
+        <div class="drawer-labels" id="drawer-labels"></div>
+      </div>
+
+      <!-- Description -->
+      <div class="drawer-field">
+        <div class="drawer-flabel">描述</div>
+        <div class="drawer-desc-box" id="drawer-desc"></div>
+      </div>
+
+      <!-- Timestamps -->
+      <div class="drawer-times">
+        <div class="drawer-time-item">
+          <div class="drawer-time-lbl">建立時間</div>
+          <div class="drawer-time-val" id="drawer-created"></div>
+        </div>
+        <div class="drawer-time-item">
+          <div class="drawer-time-lbl">最後更新</div>
+          <div class="drawer-time-val" id="drawer-updated"></div>
+        </div>
+      </div>
+
+    </div>
+    <div class="drawer-foot">
+      <button class="btn btn-primary" style="flex:1" id="drawer-edit-btn" onclick="drawerEdit()">✎ 編輯任務</button>
+      <button class="btn btn-ghost btn-danger" id="drawer-del-btn" onclick="drawerDelete()">✕ 刪除</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════════════════════════ TOASTS ═══════════════════════════════ -->
 <div class="toast-wrap" id="toasts"></div>
 
@@ -585,7 +830,6 @@
 let board       = null;
 let ws          = null;
 let wsOk        = false;
-let reconnTimer = null;
 let drag        = { cardId: null, fromCol: null };
 let cardMode    = 'add';   // 'add' | 'edit'
 let editId      = null;
@@ -594,30 +838,188 @@ let selColor    = '#6366f1';
 const lcMap     = {};
 const LC        = ['lc0','lc1','lc2','lc3','lc4','lc5'];
 
-/* ─── WebSocket ─────────────────────────────────────────── */
+/* ─── WebSocket 自動重連（指數退避）────────────────────────
+   策略：
+     - 連線失敗或中斷後，以指數退避排程下一次嘗試
+     - 延遲：1 → 2 → 4 → 8 → 16 → 30秒（上限 30 秒）
+     - 頁面重新可見（visibilitychange）時立即重試
+     - Navbar pill 顯示狀態；頂部 Banner 顯示倒數與手動重試
+     - 重連成功後重新拉取最新 board（補漏斷線期間的異動）
+──────────────────────────────────────────────────────────── */
+const WS_DELAYS   = [1, 2, 4, 8, 16, 30]; // seconds
+let   wsAttempt   = 0;      // how many consecutive failures
+let   reconnTimer    = null;  // setTimeout handle for next reconnect attempt
+let   cntdownTimer   = null;  // setInterval handle for countdown display
+let   hideBannerTimer= null;  // setTimeout handle for banner slide-away
+let   wsManualStop   = false; // true = user navigated away, skip reconnect
+
 function connect() {
+  if (wsManualStop) return;
+
+  // Close any stale socket first
+  if (ws && ws.readyState !== WebSocket.CLOSED) {
+    ws.onclose = null; // prevent triggering scheduleReconn again
+    ws.close();
+  }
+
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}/ws`);
 
   ws.onopen = () => {
-    wsOk = true;
-    setWS(true);
-    toast('已連線至伺服器', 'inf');
-    clearTimeout(reconnTimer);
+    const wasDisconnected = !wsOk;
+    wsOk      = true;
+    wsAttempt = 0;
+    clearTimers();
+    setWS('on');
+
+    // Only touch the banner if it was actually shown during a disconnect
+    if (wasDisconnected && document.getElementById('reconn-banner').classList.contains('show')) {
+      hideBanner();
+      toast('已重新連線 ✓', 'ok');
+      // Re-fetch board to catch changes that happened while disconnected
+      fetch('/api/board')
+        .then(r => r.json())
+        .then(d => { board = d; renderBoard(null); refreshStats(); })
+        .catch(() => {});
+    }
   };
 
   ws.onmessage = e => {
     try { handle(JSON.parse(e.data)); } catch(_) {}
   };
 
-  ws.onclose = () => {
+  ws.onclose = e => {
     wsOk = false;
-    setWS(false);
-    reconnTimer = setTimeout(connect, 3000);
+    setWS('off');
+    // Code 1000 = normal close (server shutdown), still reconnect
+    scheduleReconn();
   };
 
-  ws.onerror = () => { ws.close(); };
+  ws.onerror = () => {
+    // onerror is always followed by onclose; let onclose drive reconnect
+  };
 }
+
+/* Schedule next reconnection attempt with exponential backoff */
+function scheduleReconn() {
+  if (wsManualStop) return;
+  clearTimers();
+
+  const delaySecs = WS_DELAYS[Math.min(wsAttempt, WS_DELAYS.length - 1)];
+  wsAttempt++;
+
+  showBanner(delaySecs);
+
+  reconnTimer = setTimeout(() => {
+    clearInterval(cntdownTimer);
+    connect();
+  }, delaySecs * 1000);
+}
+
+/* Immediately cancel backoff and retry */
+function retryNow() {
+  wsAttempt = 0; // reset so next failure starts at 1 s again
+  clearTimers();
+  setBannerMsg('retrying', '嘗試連線中…', '');
+  connect();
+}
+
+function clearTimers() {
+  clearTimeout(reconnTimer);
+  clearInterval(cntdownTimer);
+  reconnTimer  = null;
+  cntdownTimer = null;
+}
+
+/* ── Banner helpers ─────────────────────────────────────── */
+function showBanner(delaySecs) {
+  const banner  = document.getElementById('reconn-banner');
+  const countEl = document.getElementById('reconn-countdown');
+  const dot     = document.getElementById('reconn-dot');
+  const msg     = document.getElementById('reconn-msg');
+
+  // Cancel any pending "hide" from a previous successful reconnect
+  if (hideBannerTimer) { clearTimeout(hideBannerTimer); hideBannerTimer = null; }
+
+  banner.classList.remove('connected');
+  dot.className   = 'reconn-dot retrying';
+  msg.textContent = `WebSocket 已斷線（第 ${wsAttempt} 次重試）`;
+
+  let remaining = delaySecs;
+  countEl.textContent = `${remaining}s 後重試`;
+  banner.classList.add('show');
+
+  cntdownTimer = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      countEl.textContent = '連線中…';
+      clearInterval(cntdownTimer);
+    } else {
+      countEl.textContent = `${remaining}s 後重試`;
+    }
+  }, 1000);
+}
+
+function hideBanner() {
+  const banner = document.getElementById('reconn-banner');
+
+  // Guard: only act when the banner is actually visible
+  if (!banner.classList.contains('show')) return;
+
+  // Cancel any previous pending hide (handles rapid disconnect/reconnect)
+  clearTimeout(hideBannerTimer);
+  hideBannerTimer = null;
+
+  const dot     = document.getElementById('reconn-dot');
+  const msg     = document.getElementById('reconn-msg');
+  const countEl = document.getElementById('reconn-countdown');
+
+  // Switch to green state
+  banner.classList.add('connected');
+  dot.className       = 'reconn-dot connected';
+  msg.textContent     = '連線已恢復';
+  countEl.textContent = '';
+
+  // Slide banner back up after a brief pause
+  hideBannerTimer = setTimeout(() => {
+    hideBannerTimer = null;
+    banner.classList.remove('show', 'connected');
+    // Reset dot colour after the CSS slide-up transition finishes
+    setTimeout(() => { dot.className = 'reconn-dot retrying'; }, 350);
+  }, 1800);
+}
+
+function setBannerMsg(dotState, msgTxt, countTxt) {
+  // dotState: 'retrying' | 'connected' | '' (keeps current)
+  const dot = document.getElementById('reconn-dot');
+  if (dotState) dot.className = 'reconn-dot ' + dotState;
+  document.getElementById('reconn-msg').textContent       = msgTxt;
+  document.getElementById('reconn-countdown').textContent = countTxt;
+}
+
+/* ── Navbar pill ────────────────────────────────────────── */
+function setWS(state) { // 'on' | 'off' | 'warn'
+  const p = document.getElementById('ws-pill');
+  const t = document.getElementById('ws-txt');
+  p.className = 'pill pill-ws ' + state;
+  const labels = { on: '已連線', off: '已斷線', warn: '重連中…' };
+  t.textContent = labels[state] || state;
+}
+
+/* ── Page Visibility — reconnect immediately when tab is shown ── */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !wsOk) {
+    wsAttempt = 0;   // reset backoff when user returns
+    retryNow();
+  }
+});
+
+/* ── Cleanup before page unload ─────────────────────────── */
+window.addEventListener('beforeunload', () => {
+  wsManualStop = true;
+  clearTimers();
+  if (ws) ws.close(1000, 'page unload');
+});
 
 function handle(msg) {
   if (msg.type === 'board_update') {
@@ -625,16 +1027,13 @@ function handle(msg) {
     board = msg.payload;
     renderBoard(prev);
     refreshStats();
+    // Re-populate open detail drawer with fresh data
+    if (drawerCardId && document.getElementById('drawer-mask').classList.contains('on')) {
+      openDrawer(drawerCardId);
+    }
   } else if (msg.type === 'online_count') {
     document.getElementById('user-cnt').textContent = msg.payload;
   }
-}
-
-function setWS(ok) {
-  const p = document.getElementById('ws-pill');
-  const t = document.getElementById('ws-txt');
-  p.className = 'pill pill-ws ' + (ok ? 'on' : 'off');
-  t.textContent = ok ? '已連線' : '重連中…';
 }
 
 /* ─── Board Render ──────────────────────────────────────── */
@@ -708,6 +1107,10 @@ function makeCard(c, colId) {
     el.classList.remove('dragging');
     document.querySelectorAll('.col').forEach(c => c.classList.remove('drag-over'));
   });
+  // Click card body → open detail drawer (action buttons stop propagation)
+  el.addEventListener('click', e => {
+    if (!e.target.closest('.card-acts')) openDrawer(c.id);
+  });
 
   const labels = (c.labels || []).map(l => {
     if (!lcMap[l]) { const k = Object.keys(lcMap).length; lcMap[l] = LC[k % LC.length]; }
@@ -730,8 +1133,8 @@ function makeCard(c, colId) {
         ${avt}
       </div>
       <div class="card-acts">
-        <button class="act-btn" title="編輯" onclick="openEditModal('${c.id}')">✎</button>
-        <button class="act-btn del" title="刪除" onclick="delCard('${c.id}')">✕</button>
+        <button class="act-btn" title="編輯" onclick="event.stopPropagation();openEditModal('${c.id}')">✎</button>
+        <button class="act-btn del" title="刪除" onclick="event.stopPropagation();delCard('${c.id}')">✕</button>
       </div>
     </div>`;
   return el;
@@ -887,6 +1290,121 @@ function toast(msg, type='inf') {
   c.appendChild(d);
   setTimeout(() => { d.style.cssText='opacity:0;transform:translateX(14px);transition:all .28s'; setTimeout(()=>d.remove(),300); }, 2800);
 }
+
+/* ─── Card Detail Drawer ─────────────────────────────────── */
+let drawerCardId = null;
+
+function openDrawer(cardId) {
+  // Find card data in board state
+  let card = null, col = null;
+  if (board) {
+    for (const c of board.columns) {
+      const found = (c.cards || []).find(x => x.id === cardId);
+      if (found) { card = found; col = c; break; }
+    }
+  }
+  if (!card) return;
+  drawerCardId = cardId;
+
+  // Stripe colour
+  const stripe = document.getElementById('drawer-stripe');
+  stripe.className = 'drawer-stripe p-' + (card.priority || 'medium');
+
+  // Column breadcrumb
+  document.getElementById('drawer-col-dot').style.background = col.color || '#6366f1';
+  document.getElementById('drawer-col-name').textContent = col.title;
+
+  // Title
+  document.getElementById('drawer-title').textContent = card.title;
+
+  // Priority badge
+  const priMap = { high:'高優先', medium:'中優先', low:'低優先' };
+  const priCls = { high:'pbadge high', medium:'pbadge medium', low:'pbadge low' };
+  document.getElementById('drawer-priority').innerHTML =
+    `<span class="${priCls[card.priority]||'pbadge medium'}">${priMap[card.priority]||'中優先'}</span>`;
+
+  // Assignee
+  const asgn = document.getElementById('drawer-assignee');
+  if (card.assignee) {
+    asgn.innerHTML = `<div class="drawer-avatar">${esc(card.assignee.charAt(0).toUpperCase())}</div><span>${esc(card.assignee)}</span>`;
+  } else {
+    asgn.innerHTML = '<span class="drawer-empty">未指派</span>';
+  }
+
+  // Labels
+  const labelsEl = document.getElementById('drawer-labels');
+  const labelsWrap = document.getElementById('drawer-labels-wrap');
+  if (card.labels && card.labels.length) {
+    labelsWrap.style.display = '';
+    labelsEl.innerHTML = (card.labels || []).map(l => {
+      if (!lcMap[l]) { const k = Object.keys(lcMap).length; lcMap[l] = LC[k % LC.length]; }
+      return `<span class="lbl ${lcMap[l]}">${esc(l)}</span>`;
+    }).join('');
+  } else {
+    labelsWrap.style.display = 'none';
+  }
+
+  // Description
+  const descEl = document.getElementById('drawer-desc');
+  if (card.description && card.description.trim()) {
+    descEl.textContent = card.description;
+    descEl.classList.remove('empty');
+  } else {
+    descEl.textContent = '尚無描述';
+    descEl.classList.add('empty');
+  }
+
+  // Timestamps
+  const fmtDate = iso => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleString('zh-TW', {
+      year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit', hour12: false
+    });
+  };
+  document.getElementById('drawer-created').textContent = fmtDate(card.createdAt);
+  document.getElementById('drawer-updated').textContent = fmtDate(card.updatedAt);
+
+  // Open
+  document.getElementById('drawer-mask').classList.add('on');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeDrawer() {
+  document.getElementById('drawer-mask').classList.remove('on');
+  document.body.style.overflow = '';
+  drawerCardId = null;
+}
+
+function drawerEdit() {
+  if (!drawerCardId) return;
+  closeDrawer();
+  openEditModal(drawerCardId);
+}
+
+async function drawerDelete() {
+  if (!drawerCardId) return;
+  if (!confirm('確定刪除此任務？')) return;
+  const id = drawerCardId;
+  closeDrawer();
+  try { await api(`/api/cards/${id}`, 'DELETE'); toast('任務已刪除', 'ok'); }
+  catch(e) { toast('刪除失敗：' + e.message, 'err'); }
+}
+
+// Close drawer when clicking the mask (outside the panel)
+document.getElementById('drawer-mask').addEventListener('click', e => {
+  if (e.target === document.getElementById('drawer-mask')) closeDrawer();
+});
+
+// ESC closes drawer too (already handled by overlay ESC, but add explicit)
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('drawer-mask').classList.contains('on')) {
+    closeDrawer();
+  }
+});
+
+
 
 /* ─── Boot ───────────────────────────────────────────────── */
 connect();

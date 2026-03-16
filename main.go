@@ -13,6 +13,21 @@ func main() {
 		fmt.Println("Warning: envfile not found, using defaults")
 	}
 
+	// ── Mode selection ───────────────────────────────────────────────────────
+	// Run as MCP stdio server when --mcp flag is passed.
+	// Everything else starts the normal HTTP server.
+	for _, arg := range os.Args[1:] {
+		if arg == "--mcp" {
+			dbPath := os.Getenv("DBPath")
+			if dbPath == "" {
+				dbPath = "kanban.db"
+			}
+			RunMCPServer(dbPath)
+			return
+		}
+	}
+
+	// ── HTTP Server mode ─────────────────────────────────────────────────────
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -30,7 +45,6 @@ func main() {
 		dbPath = "kanban.db"
 	}
 
-	// ── SQLite Store ────────────────────────────────────────────────────────
 	store, err := NewSQLiteStore(dbPath)
 	if err != nil {
 		fmt.Printf("  ✗ Failed to open database: %v\n", err)
@@ -43,11 +57,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// ── WebSocket Hub ───────────────────────────────────────────────────────
 	hub := NewHub()
 	go hub.Run()
 
-	// ── HTTP Server ─────────────────────────────────────────────────────────
 	server, err := SherryServer.NewServer(":"+port, documentRoot, templateRoot)
 	if err != nil {
 		panic(err)
@@ -64,23 +76,10 @@ func main() {
 	fmt.Printf("  ██║  ██╗██║  ██║██║ ╚████║██████╔╝██║  ██║██║ ╚████║██╔╝ ██╗\n")
 	fmt.Printf("  ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝\n")
 	fmt.Printf("\n")
-	fmt.Printf("  🚀  Server     → http://localhost:%s\n", port)
-	fmt.Printf("  📡  WebSocket  → ws://localhost:%s/ws\n", port)
-	fmt.Printf("  🗄️   Database   → %s\n", dbPath)
-	fmt.Printf("  📂  Static     → %s\n\n", documentRoot)
-	fmt.Printf("  API Endpoints:\n")
-	fmt.Printf("    GET    /api/board\n")
-	fmt.Printf("    GET    /api/cards/{id}\n")
-	fmt.Printf("    POST   /api/cards\n")
-	fmt.Printf("    POST   /api/cards/move\n")
-	fmt.Printf("    PUT    /api/cards/{id}\n")
-	fmt.Printf("    DELETE /api/cards/{id}\n")
-	fmt.Printf("    GET    /api/columns\n")
-	fmt.Printf("    GET    /api/columns/{id}\n")
-	fmt.Printf("    GET    /api/columns/{id}/cards\n")
-	fmt.Printf("    POST   /api/columns\n")
-	fmt.Printf("    PUT    /api/columns/{id}\n")
-	fmt.Printf("    DELETE /api/columns/{id}\n\n")
+	fmt.Printf("  🚀  HTTP Server → http://localhost:%s\n", port)
+	fmt.Printf("  📡  WebSocket   → ws://localhost:%s/ws\n", port)
+	fmt.Printf("  🗄️   Database    → %s\n", dbPath)
+	fmt.Printf("  🤖  MCP mode    → run with --mcp flag\n\n")
 
 	server.Start()
 }
