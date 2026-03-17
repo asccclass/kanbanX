@@ -86,8 +86,8 @@ func main() {
 	fmt.Printf("  ██║  ██╗██║  ██║██║ ╚████║██████╔╝██║  ██║██║ ╚████║██╔╝ ██╗\n")
 	fmt.Printf("  ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝\n")
 	fmt.Printf("\n")
-	fmt.Printf("  🚀  HTTP Server → http://localhost:%s\n", port)
-	fmt.Printf("  📡  WebSocket   → ws://localhost:%s/ws\n", port)
+	fmt.Printf("  🚀  HTTP Server → http://[IP_ADDRESS] or http://localhost:%s\n", port)
+	fmt.Printf("  📡  WebSocket   → ws://[IP_ADDRESS] or ws://localhost:%s/ws\n", port)
 	fmt.Printf("  🗄️   Database    → %s\n", dbPath)
 	fmt.Printf("  🤖  MCP mode    → run with --mcp flag\n\n")
 

@@ -54,7 +54,7 @@ func (h *Handler) telegramID(r *http.Request) string {
 func (h *Handler) broadcastBoard(telegramID string) {
 	board := h.store.GetCachedBoard(telegramID)
 	if board != nil {
-		h.hub.Broadcast("board_update", board)
+		h.hub.BroadcastBoard(telegramID, board)
 	}
 }
 
@@ -247,7 +247,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := &Client{hub: h.hub, conn: conn, send: make(chan []byte, 256)}
+	client := &Client{hub: h.hub, conn: conn, send: make(chan []byte, 256), telegramID: tid}
 	h.hub.register <- client
 
 	// Send current board state immediately

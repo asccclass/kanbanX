@@ -122,7 +122,7 @@ func (s *SQLiteStore) EnsureUserBoard(telegramID string) (*Board, error) {
 	return s.loadAndCacheBoard(telegramID)
 }
 
-// seedUserBoard creates a default board + columns for a brand-new Telegram user.
+// seedUserBoard creates a default board + columns + demo cards for a first-time Telegram user.
 func (s *SQLiteStore) seedUserBoard(telegramID string) error {
 	now := time.Now()
 	boardID := generateID()
@@ -141,19 +141,50 @@ func (s *SQLiteStore) seedUserBoard(telegramID string) error {
 		return err
 	}
 
-	defaultCols := []struct{ title, color string }{
-		{"待辦事項", "#6366f1"},
-		{"進行中",   "#f59e0b"},
-		{"審查中",   "#8b5cf6"},
-		{"已完成",   "#10b981"},
+	type cardSeed struct {
+		title, desc, priority, assignee string
+		labels                          []string
 	}
-	for i, col := range defaultCols {
+	type colSeed struct {
+		title, color string
+		cards        []cardSeed
+	}
+
+	seeds := []colSeed{
+		{"待辦事項", "#6366f1", []cardSeed{
+			{"建立專案架構", "規劃整體架構與技術選型", "high", "", []string{"架構"}},
+			{"撰寫需求文件", "整理功能需求並排定優先序", "medium", "", []string{"文件"}},
+		}},
+		{"進行中", "#f59e0b", []cardSeed{
+			{"開發核心功能", "實作主要業務邏輯", "high", "", []string{"開發"}},
+		}},
+		{"審查中", "#8b5cf6", []cardSeed{}},
+		{"已完成", "#10b981", []cardSeed{
+			{"環境建置", "完成開發環境設定", "low", "", []string{"DevOps"}},
+		}},
+	}
+
+	for colPos, col := range seeds {
+		colID := generateID()
 		_, err = tx.Exec(
 			`INSERT INTO columns(id, board_id, title, color, position, created_at) VALUES(?,?,?,?,?,?)`,
-			generateID(), boardID, col.title, col.color, i, now,
+			colID, boardID, col.title, col.color, colPos, now,
 		)
 		if err != nil {
 			return err
+		}
+		for cardPos, card := range col.cards {
+			lblJSON, _ := json.Marshal(card.labels)
+			_, err = tx.Exec(`
+				INSERT INTO cards(id,column_id,title,description,priority,assignee,
+				                  labels,position,created_at,updated_at)
+				VALUES(?,?,?,?,?,?,?,?,?,?)`,
+				generateID(), colID, card.title, card.desc, card.priority, card.assignee,
+				string(lblJSON), cardPos, now, now,
+			)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit()
