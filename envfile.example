@@ -2,4 +2,4 @@ SystemName=KanbanX
 PORT=8080
 DocumentRoot=www/html
 TemplateRoot=www/template
-DBPath=kanban.db
+DBPath=data/kanban.db
