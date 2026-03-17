@@ -1,0 +1,13 @@
+{
+    "mcpServers": {
+        "kanbanx": {
+            "command": "C:\\Users\\andyl\\Go\\kanbanX\\kanbanX.exe",
+            "args": [
+                "--mcp"
+            ],
+            "env": {
+                "DBPath": "C:\\Users\\andyl\\Go\\kanbanX\\kanban.db"
+            }
+        }
+    }
+}
