@@ -1047,6 +1047,32 @@
   </div>
 </div>
 
+<!-- ══════════════════════════ USER SWITCHER MODAL ══════════════════════ -->
+<div class="switcher-overlay" id="switcher-ov">
+  <div class="switcher-modal">
+    <div class="switcher-title">切換用戶看板</div>
+    <div class="switcher-sub">
+      輸入 Telegram 數字 ID 或從下方已知用戶中選取。<br>
+      URL 將自動更新：<code>?telegram_id=</code>
+    </div>
+    <div class="switcher-input-wrap">
+      <input class="switcher-input finput" id="switcher-input"
+             type="tel" placeholder="輸入 Telegram 用戶 ID…"
+             inputmode="numeric" maxlength="20"
+             onkeydown="if(event.key==='Enter') switchTo()" />
+      <button class="btn btn-primary" onclick="switchTo()">前往</button>
+    </div>
+    <div class="switcher-divider"></div>
+    <div class="switcher-list-label">已知用戶</div>
+    <div class="switcher-list" id="switcher-list">
+      <div class="switcher-empty">載入中…</div>
+    </div>
+    <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeSwitcher()">取消</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════════════════════════ TOASTS ═══════════════════════════════ -->
 <div class="toast-wrap" id="toasts"></div>
 
@@ -1063,6 +1089,49 @@ let addColId    = null;
 let selColor    = '#6366f1';
 const lcMap     = {};
 const LC        = ['lc0','lc1','lc2','lc3','lc4','lc5'];
+
+/* ─── Telegram ID (per-user board identity) ─────────────── */
+let currentTID = '';
+
+function getTID() {
+  return new URLSearchParams(location.search).get('telegram_id') || '';
+}
+
+function withTID(url) {
+  if (!currentTID) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}telegram_id=${encodeURIComponent(currentTID)}`;
+}
+
+function updateUserPill() {
+  const avatar = document.getElementById('user-avatar');
+  const label  = document.getElementById('user-id-display');
+  if (currentTID) {
+    avatar.textContent = currentTID.charAt(0);
+    label.textContent  = currentTID.length > 10
+      ? currentTID.slice(0,4) + '…' + currentTID.slice(-4)
+      : currentTID;
+  } else {
+    avatar.textContent = '?';
+    label.textContent  = '未識別';
+  }
+}
+
+function applyTID(tid) {
+  tid = (tid || '').trim();
+  if (!tid) return;
+  currentTID = tid;
+  const url = new URL(location.href);
+  url.searchParams.set('telegram_id', tid);
+  history.pushState({}, '', url.toString());
+  updateUserPill();
+  Object.keys(lcMap).forEach(k => delete lcMap[k]);
+  wsManualStop = false;
+  wsAttempt = 0;
+  clearTimers();
+  connect();
+  document.getElementById('board-title').textContent = '載入中…';
+}
 
 /* ─── WebSocket 自動重連（指數退避）────────────────────────
    策略：
@@ -1089,7 +1158,8 @@ function connect() {
   }
 
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${proto}//${location.host}/ws`);
+  const wsTID = currentTID ? `?telegram_id=${encodeURIComponent(currentTID)}` : '';
+  ws = new WebSocket(`${proto}//${location.host}/ws${wsTID}`);
 
   ws.onopen = () => {
     const wasDisconnected = !wsOk;
@@ -1103,7 +1173,7 @@ function connect() {
       hideBanner();
       toast('已重新連線 ✓', 'ok');
       // Re-fetch board to catch changes that happened while disconnected
-      fetch('/api/board')
+      fetch(withTID('/api/board'))
         .then(r => r.json())
         .then(d => { board = d; renderBoard(null); refreshStats(); })
         .catch(() => {});
@@ -1505,7 +1575,7 @@ document.addEventListener('keydown', e => {
 
 /* ─── API ───────────────────────────────────────────────── */
 async function api(url, method='GET', body=null) {
-  const r = await fetch(url, {
+  const r = await fetch(withTID(url), {
     method,
     headers: { 'Content-Type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {})
@@ -1653,8 +1723,108 @@ document.addEventListener('keydown', e => {
 
 
 
+/* ─── User Switcher ─────────────────────────────────────── */
+function openSwitcher() {
+  document.getElementById('switcher-input').value = currentTID;
+  // Load known users
+  fetch('/api/users')
+    .then(r => r.json())
+    .then(res => {
+      const list = document.getElementById('switcher-list');
+      const users = (res.data || []);
+      if (!users.length) {
+        list.innerHTML = '<div class="switcher-empty">尚無已知用戶</div>';
+        return;
+      }
+      list.innerHTML = users.map(u => {
+        const tid = u.telegramId || u.displayName || '';
+        const active = tid === currentTID;
+        const initials = tid.charAt(0) || '?';
+        const meta = u.createdAt ? new Date(u.createdAt).toLocaleDateString('zh-TW') : '';
+        return `<div class="switcher-item${active?' active':''}" onclick="switchToUser('${esc(tid)}')">
+          <div class="switcher-avatar">${initials}</div>
+          <div class="switcher-info">
+            <div class="switcher-id">${esc(tid)}</div>
+            ${meta ? `<div class="switcher-meta">建立於 ${meta}</div>` : ''}
+          </div>
+          ${active ? '<div class="switcher-check">✓</div>' : ''}
+        </div>`;
+      }).join('');
+    })
+    .catch(() => {
+      document.getElementById('switcher-list').innerHTML =
+        '<div class="switcher-empty">無法載入用戶列表</div>';
+    });
+  document.getElementById('switcher-ov').classList.add('on');
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => document.getElementById('switcher-input').focus(), 120);
+}
+
+function closeSwitcher() {
+  document.getElementById('switcher-ov').classList.remove('on');
+  document.body.style.overflow = '';
+}
+
+function switchTo() {
+  const tid = document.getElementById('switcher-input').value.trim();
+  if (!tid) { toast('請輸入 Telegram ID', 'err'); return; }
+  if (!/^\d+$/.test(tid)) { toast('Telegram ID 須為純數字', 'err'); return; }
+  closeSwitcher();
+  applyTID(tid);
+}
+
+function switchToUser(tid) {
+  closeSwitcher();
+  applyTID(tid);
+}
+
+document.getElementById('switcher-ov').addEventListener('click', e => {
+  if (e.target === document.getElementById('switcher-ov')) closeSwitcher();
+});
+
+/* ─── Identity Gate ──────────────────────────────────────── */
+function showGate() {
+  document.getElementById('id-gate').classList.remove('hidden');
+  document.getElementById('main-navbar').style.display = 'none';
+  document.querySelector('.board-wrap').style.display = 'none';
+  document.getElementById('reconn-banner').style.display = 'none';
+  setTimeout(() => document.getElementById('gate-input').focus(), 120);
+}
+
+function hideGate() {
+  document.getElementById('id-gate').classList.add('hidden');
+  document.getElementById('main-navbar').style.display = '';
+  document.querySelector('.board-wrap').style.display = '';
+  document.getElementById('reconn-banner').style.display = '';
+}
+
+function commitGateID() {
+  const tid = document.getElementById('gate-input').value.trim();
+  if (!tid) { document.getElementById('gate-input').focus(); return; }
+  if (!/^\d+$/.test(tid)) {
+    toast('Telegram ID 須為純數字（例如：123456789）', 'err');
+    return;
+  }
+  hideGate();
+  applyTID(tid);
+}
+
+document.getElementById('gate-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') commitGateID();
+});
+
 /* ─── Boot ───────────────────────────────────────────────── */
-connect();
+(function boot() {
+  const tid = getTID();
+  if (tid) {
+    currentTID = tid;
+    updateUserPill();
+    hideGate();
+    connect();
+  } else {
+    showGate();
+  }
+})();
 </script>
 </body>
 </html>
