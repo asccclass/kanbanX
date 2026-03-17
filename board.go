@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// ─── Priority ────────────────────────────────────────────────────────────────
+// ─── Priority ─────────────────────────────────────────────────────────────────
 
 type Priority string
 
@@ -20,39 +20,25 @@ func (p Priority) Valid() bool {
 	return p == PriorityHigh || p == PriorityMedium || p == PriorityLow
 }
 
-// ─── GoalType ────────────────────────────────────────────────────────────────
+// ─── Core Models ──────────────────────────────────────────────────────────────
 
-type GoalType string
-
-const (
-	GoalNone    GoalType = ""        // no goal classification
-	GoalWeekly  GoalType = "weekly"  // 每週目標
-	GoalMonthly GoalType = "monthly" // 每月目標
-	GoalYearly  GoalType = "yearly"  // 每年目標
-)
-
-func (g GoalType) Valid() bool {
-	return g == GoalNone || g == GoalWeekly || g == GoalMonthly || g == GoalYearly
-}
-
-// ─── Core Models ─────────────────────────────────────────────────────────────
-
-// Card represents a single task on the board.
-type Card struct {
-	ID          string    `json:"id"`
-	ColumnID    string    `json:"columnId"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Priority    Priority  `json:"priority"`
-	GoalType    GoalType  `json:"goalType"`
-	Assignee    string    `json:"assignee"`
-	Labels      []string  `json:"labels"`
-	Position    int       `json:"position"`
+// TelegramUser is a lightweight record of a Telegram account.
+type TelegramUser struct {
+	TelegramID  string    `json:"telegramId"`
+	DisplayName string    `json:"displayName"`
 	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-// Column represents a stage lane on the board.
+// Board is the root container owned by one Telegram user.
+type Board struct {
+	ID         string    `json:"id"`
+	TelegramID string    `json:"telegramId"`
+	Title      string    `json:"title"`
+	Columns    []*Column `json:"columns"`
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
+// Column represents a stage lane on a board.
 type Column struct {
 	ID        string    `json:"id"`
 	BoardID   string    `json:"boardId"`
@@ -63,22 +49,27 @@ type Column struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// Board is the top-level container.
-type Board struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Columns   []*Column `json:"columns"`
-	CreatedAt time.Time `json:"createdAt"`
+// Card represents a single task.
+type Card struct {
+	ID          string    `json:"id"`
+	ColumnID    string    `json:"columnId"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Priority    Priority  `json:"priority"`
+	Assignee    string    `json:"assignee"`
+	Labels      []string  `json:"labels"`
+	Position    int       `json:"position"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-// ─── Request / Response DTOs ─────────────────────────────────────────────────
+// ─── Request / Response DTOs ──────────────────────────────────────────────────
 
 type AddCardRequest struct {
 	ColumnID    string   `json:"columnId"`
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	Priority    Priority `json:"priority"`
-	GoalType    GoalType `json:"goalType"`
 	Assignee    string   `json:"assignee"`
 	Labels      []string `json:"labels"`
 }
@@ -87,7 +78,6 @@ type UpdateCardRequest struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	Priority    Priority `json:"priority"`
-	GoalType    GoalType `json:"goalType"`
 	Assignee    string   `json:"assignee"`
 	Labels      []string `json:"labels"`
 }
@@ -115,7 +105,7 @@ func generateID() string {
 	return fmt.Sprintf("%d%04d", time.Now().UnixNano(), rand.Intn(9999))
 }
 
-// ─── API response helpers ──────────────────────────────────────────────────────
+// ─── API Response ─────────────────────────────────────────────────────────────
 
 type APIResponse struct {
 	Status  string      `json:"status"`

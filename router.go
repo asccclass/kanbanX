@@ -6,29 +6,22 @@ import (
 	SherryServer "github.com/asccclass/sherryserver"
 )
 
-// NewRouter wires up all routes: static files, REST API, WebSocket.
 func NewRouter(srv *SherryServer.Server, documentRoot string, store *SQLiteStore, hub *Hub) *http.ServeMux {
 	router := http.NewServeMux()
 	h := NewHandler(store, hub)
 
-	// ── Static file server ────────────────────────────────────────────────────
-	staticFileServer := SherryServer.StaticFileServer{
-		StaticPath: documentRoot,
-		IndexPath:  "index.html",
-	}
+	staticFileServer := SherryServer.StaticFileServer{StaticPath: documentRoot, IndexPath: "index.html"}
 	staticFileServer.AddRouter(router)
 
-	// ── Board ─────────────────────────────────────────────────────────────────
 	router.HandleFunc("GET /api/board", h.GetBoard)
+	router.HandleFunc("GET /api/users", h.ListUsers)
 
-	// ── Cards ─────────────────────────────────────────────────────────────────
 	router.HandleFunc("GET  /api/cards/{id}", h.GetCard)
 	router.HandleFunc("POST /api/cards", h.CreateCard)
 	router.HandleFunc("POST /api/cards/move", h.MoveCard)
 	router.HandleFunc("PUT  /api/cards/{id}", h.UpdateCard)
 	router.HandleFunc("DELETE /api/cards/{id}", h.DeleteCard)
 
-	// ── Columns ───────────────────────────────────────────────────────────────
 	router.HandleFunc("GET  /api/columns", h.ListColumns)
 	router.HandleFunc("GET  /api/columns/{id}", h.GetColumn)
 	router.HandleFunc("GET  /api/columns/{id}/cards", h.ListCards)
@@ -36,8 +29,6 @@ func NewRouter(srv *SherryServer.Server, documentRoot string, store *SQLiteStore
 	router.HandleFunc("PUT  /api/columns/{id}", h.UpdateColumn)
 	router.HandleFunc("DELETE /api/columns/{id}", h.DeleteColumn)
 
-	// ── WebSocket ─────────────────────────────────────────────────────────────
 	router.HandleFunc("GET /ws", h.ServeWS)
-
 	return router
 }

@@ -437,6 +437,147 @@
     }
     .btn-danger:hover { background: rgba(248,113,113,.22); border-color: rgba(248,113,113,.4); }
 
+    /* ── Drawer: Append & Patch controls ──────────────────── */
+    .drawer-section-toggle {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; font-weight: 700; letter-spacing: .6px;
+      text-transform: uppercase; color: var(--txt-3);
+      cursor: pointer; user-select: none;
+      transition: color .15s; padding: 2px 0;
+    }
+    .drawer-section-toggle:hover { color: var(--cyan); }
+    .drawer-section-toggle .arr { font-size: 9px; transition: transform .2s; }
+    .drawer-section-toggle.open .arr { transform: rotate(90deg); }
+    .drawer-collapsible {
+      display: none; flex-direction: column; gap: 10px;
+      padding: 14px;
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 10px; margin-top: 4px;
+    }
+    .drawer-collapsible.show { display: flex; }
+    .drawer-append-textarea {
+      background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      border-radius: var(--r-sm); padding: 10px 12px;
+      color: var(--txt); font-size: 13.5px; font-family: inherit;
+      resize: vertical; min-height: 80px; width: 100%;
+      transition: all .18s;
+    }
+    .drawer-append-textarea::placeholder { color: var(--txt-3); }
+    .drawer-append-textarea:focus {
+      outline: none; border-color: var(--cyan);
+      background: rgba(6,200,232,.04);
+      box-shadow: 0 0 0 3px rgba(6,200,232,.1);
+    }
+    .drawer-row { display: flex; gap: 8px; align-items: center; }
+    .drawer-sep-select {
+      flex: 1; background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      border-radius: var(--r-sm); padding: 6px 10px;
+      color: var(--txt-2); font-size: 12px; font-family: inherit;
+    }
+    .drawer-sep-select option { background: var(--bg-surface); }
+    .btn-xs { padding: 5px 12px; font-size: 12px; }
+    /* Patch row inside collapsible */
+    .patch-field-row {
+      display: grid; grid-template-columns: 100px 1fr; gap: 8px; align-items: center;
+    }
+    .patch-field-label { font-size: 11px; color: var(--txt-3); font-weight: 600; }
+    .patch-finput {
+      background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      border-radius: var(--r-sm); padding: 7px 11px;
+      color: var(--txt); font-size: 13px; font-family: inherit;
+      transition: all .18s; width: 100%;
+    }
+    .patch-finput:focus {
+      outline: none; border-color: var(--purple);
+      box-shadow: 0 0 0 3px rgba(155,111,250,.1);
+    }
+    .patch-fselect {
+      background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      border-radius: var(--r-sm); padding: 7px 11px;
+      color: var(--txt); font-size: 13px; font-family: inherit; width: 100%;
+    }
+    .patch-fselect option { background: var(--bg-surface); }
+
+    /* ── Append / Patch panel ─────────────────────────────── */
+    .drawer-section-toggle {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 11px; font-weight: 700; letter-spacing: .6px;
+      text-transform: uppercase; color: var(--txt-3);
+      cursor: pointer; user-select: none; padding: 4px 0;
+      transition: color .15s; border: none; background: none; width: 100%;
+      text-align: left;
+    }
+    .drawer-section-toggle:hover { color: var(--cyan); }
+    .drawer-toggle-arr { font-size: 9px; transition: transform .22s; }
+    .drawer-section-toggle.open .drawer-toggle-arr { transform: rotate(90deg); }
+
+    .drawer-append-panel {
+      display: none; flex-direction: column; gap: 10px;
+      padding: 14px;
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 10px;
+    }
+    .drawer-append-panel.show { display: flex; }
+
+    .drawer-append-textarea {
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 10px 12px; color: var(--txt);
+      font-size: 13.5px; font-family: inherit;
+      resize: vertical; min-height: 86px; width: 100%;
+      transition: border-color .18s, box-shadow .18s;
+    }
+    .drawer-append-textarea::placeholder { color: var(--txt-3); }
+    .drawer-append-textarea:focus {
+      outline: none; border-color: var(--cyan);
+      background: rgba(6,200,232,.04);
+      box-shadow: 0 0 0 3px rgba(6,200,232,.1);
+    }
+    .drawer-append-foot {
+      display: flex; gap: 8px; align-items: center;
+    }
+    .drawer-sep-select {
+      flex: 1;
+      background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      border-radius: var(--r-sm); padding: 7px 10px;
+      color: var(--txt-2); font-size: 12px; font-family: inherit;
+      transition: border-color .18s;
+    }
+    .drawer-sep-select:focus { outline: none; border-color: var(--cyan); }
+    .drawer-sep-select option { background: var(--bg-surface); }
+
+    /* Quick-patch inline row */
+    .drawer-patch-section {
+      display: flex; flex-direction: column; gap: 10px;
+      padding: 14px;
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 10px;
+    }
+    .drawer-patch-row {
+      display: flex; gap: 8px; align-items: center;
+    }
+    .drawer-patch-label {
+      font-size: 11px; font-weight: 600; letter-spacing: .4px;
+      text-transform: uppercase; color: var(--txt-3);
+      white-space: nowrap; min-width: 52px;
+    }
+    .drawer-patch-input, .drawer-patch-select {
+      flex: 1; background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      border-radius: var(--r-sm); padding: 7px 11px;
+      color: var(--txt); font-size: 13px; font-family: inherit;
+      transition: border-color .18s, box-shadow .18s;
+    }
+    .drawer-patch-input:focus, .drawer-patch-select:focus {
+      outline: none; border-color: var(--purple);
+      box-shadow: 0 0 0 3px rgba(155,111,250,.1);
+    }
+    .drawer-patch-select option { background: var(--bg-surface); }
+    .btn-xs { padding: 6px 13px; font-size: 12px; }
+
     /* ─────────────────────────────────────────────
        ADD COLUMN BUTTON
     ───────────────────────────────────────────── */
@@ -824,6 +965,66 @@
       <div class="drawer-field">
         <div class="drawer-flabel">描述</div>
         <div class="drawer-desc-box" id="drawer-desc"></div>
+      </div>
+
+      <!-- ── Append content ── -->
+      <div class="drawer-field">
+        <div class="drawer-section-toggle" id="append-toggle" onclick="toggleSection('append')">
+          <span class="arr">▶</span>＋ 追加內容
+        </div>
+        <div class="drawer-collapsible" id="append-panel">
+          <textarea class="drawer-append-textarea" id="drawer-append-text"
+            placeholder="追加進度更新、補充說明、會議記錄…"></textarea>
+          <div class="drawer-row">
+            <select class="drawer-sep-select" id="drawer-sep">
+              <option value="&#10;&#10;---&#10;">── 分隔線</option>
+              <option value="&#10;&#10;">空白行</option>
+              <option value="&#10;">直接換行</option>
+            </select>
+            <button class="btn btn-primary btn-xs" onclick="drawerAppend()">追加</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Quick patch ── -->
+      <div class="drawer-field">
+        <div class="drawer-section-toggle" id="patch-toggle" onclick="toggleSection('patch')">
+          <span class="arr">▶</span>✎ 快速修改欄位
+        </div>
+        <div class="drawer-collapsible" id="patch-panel">
+          <div class="patch-field-row">
+            <span class="patch-field-label">標題</span>
+            <input class="patch-finput" id="patch-title" type="text" placeholder="留空則不變" autocomplete="off" />
+          </div>
+          <div class="patch-field-row">
+            <span class="patch-field-label">優先級</span>
+            <select class="patch-fselect" id="patch-priority">
+              <option value="">— 不變 —</option>
+              <option value="high">🔴 高優先</option>
+              <option value="medium">🟡 中優先</option>
+              <option value="low">🟢 低優先</option>
+            </select>
+          </div>
+          <div class="patch-field-row">
+            <span class="patch-field-label">目標類型</span>
+            <select class="patch-fselect" id="patch-goal">
+              <option value="">— 不變 —</option>
+              <option value="weekly">🗓 每週目標</option>
+              <option value="monthly">📅 每月目標</option>
+              <option value="yearly">🎯 每年目標</option>
+              <option value="__clear__">✕ 清除目標</option>
+            </select>
+          </div>
+          <div class="patch-field-row">
+            <span class="patch-field-label">負責人</span>
+            <input class="patch-finput" id="patch-assignee" type="text" placeholder="留空則不變" autocomplete="off" />
+          </div>
+          <div class="patch-field-row">
+            <span class="patch-field-label">標籤</span>
+            <input class="patch-finput" id="patch-labels" type="text" placeholder="逗號分隔；留空則不變" autocomplete="off" />
+          </div>
+          <button class="btn btn-primary btn-xs" style="align-self:flex-end" onclick="drawerPatch()">套用變更</button>
+        </div>
       </div>
 
       <!-- Timestamps -->

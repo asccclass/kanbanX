@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 
 )
 
-// Handler bundles the SQLiteStore and Hub.
 type Handler struct {
 	store *SQLiteStore
 	hub   *Hub
@@ -17,7 +17,7 @@ func NewHandler(store *SQLiteStore, hub *Hub) *Handler {
 	return &Handler{store: store, hub: hub}
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
@@ -42,189 +42,196 @@ func decode(r *http.Request, v interface{}) error {
 	return json.NewDecoder(r.Body).Decode(v)
 }
 
-// broadcastBoard pushes the full board snapshot to every WebSocket client.
-func (h *Handler) broadcastBoard() {
-	h.hub.Broadcast("board_update", h.store.GetBoard())
+// telegramID extracts Telegram ID from ?telegram_id= query param or JSON body field.
+// Falls back to a default "admin" sentinel so the web UI still works without a Telegram ID.
+func (h *Handler) telegramID(r *http.Request) string {
+	if tid := strings.TrimSpace(r.URL.Query().Get("telegram_id")); tid != "" {
+		return tid
+	}
+	return "web_admin" // Web UI uses a shared admin board
+}
+
+func (h *Handler) broadcastBoard(telegramID string) {
+	board := h.store.GetCachedBoard(telegramID)
+	if board != nil {
+		h.hub.Broadcast("board_update", board)
+	}
 }
 
 // ─── Board ────────────────────────────────────────────────────────────────────
 
-// GET /api/board — full board with all columns and cards
+// GET /api/board?telegram_id=xxx
 func (h *Handler) GetBoard(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.store.GetBoard())
+	tid := h.telegramID(r)
+	board, err := h.store.EnsureUserBoard(tid)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, board)
+}
+
+// GET /api/users — list all users who have a board (for web UI switcher)
+func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := h.store.ListAllUsers()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, okResp(users))
 }
 
 // ─── Cards ────────────────────────────────────────────────────────────────────
 
-// GET /api/cards/{id}
 func (h *Handler) GetCard(w http.ResponseWriter, r *http.Request) {
-	card, err := h.store.GetCard(r.PathValue("id"))
+	tid := h.telegramID(r)
+	cardID := r.PathValue("id")
+	if err := h.store.assertCardOwnership(tid, cardID); err != nil {
+		notFound(w, err.Error()); return
+	}
+	card, err := h.store.GetCard(cardID)
 	if err != nil {
-		notFound(w, err.Error())
-		return
+		notFound(w, err.Error()); return
 	}
 	writeJSON(w, http.StatusOK, okResp(card))
 }
 
-// GET /api/columns/{id}/cards
 func (h *Handler) ListCards(w http.ResponseWriter, r *http.Request) {
-	cards, err := h.store.ListCards(r.PathValue("id"))
+	tid := h.telegramID(r)
+	colID := r.PathValue("id")
+	if err := h.store.assertColumnOwnership(tid, colID); err != nil {
+		notFound(w, err.Error()); return
+	}
+	cards, err := h.store.ListCards(colID)
 	if err != nil {
-		internalError(w, err)
-		return
+		internalError(w, err); return
 	}
 	writeJSON(w, http.StatusOK, okResp(cards))
 }
 
-// POST /api/cards
 func (h *Handler) CreateCard(w http.ResponseWriter, r *http.Request) {
+	tid := h.telegramID(r)
 	var req AddCardRequest
 	if err := decode(r, &req); err != nil {
-		badRequest(w, "invalid JSON: "+err.Error())
-		return
+		badRequest(w, "invalid JSON: "+err.Error()); return
 	}
 	if req.Title == "" {
-		badRequest(w, "title is required")
-		return
+		badRequest(w, "title is required"); return
 	}
 	if req.ColumnID == "" {
-		badRequest(w, "columnId is required")
-		return
+		badRequest(w, "columnId is required"); return
 	}
-
-	card, err := h.store.CreateCard(&req)
+	card, err := h.store.CreateCard(tid, &req)
 	if err != nil {
-		internalError(w, err)
-		return
+		internalError(w, err); return
 	}
-	h.broadcastBoard()
+	h.broadcastBoard(tid)
 	writeJSON(w, http.StatusCreated, okResp(card))
 }
 
-// PUT /api/cards/{id}
 func (h *Handler) UpdateCard(w http.ResponseWriter, r *http.Request) {
+	tid := h.telegramID(r)
 	var req UpdateCardRequest
 	if err := decode(r, &req); err != nil {
-		badRequest(w, "invalid JSON: "+err.Error())
-		return
+		badRequest(w, "invalid JSON: "+err.Error()); return
 	}
 	if req.Title == "" {
-		badRequest(w, "title is required")
-		return
+		badRequest(w, "title is required"); return
 	}
-
-	card, err := h.store.UpdateCard(r.PathValue("id"), &req)
+	card, err := h.store.UpdateCard(tid, r.PathValue("id"), &req)
 	if err != nil {
-		notFound(w, err.Error())
-		return
+		notFound(w, err.Error()); return
 	}
-	h.broadcastBoard()
+	h.broadcastBoard(tid)
 	writeJSON(w, http.StatusOK, okResp(card))
 }
 
-// DELETE /api/cards/{id}
 func (h *Handler) DeleteCard(w http.ResponseWriter, r *http.Request) {
-	if err := h.store.DeleteCard(r.PathValue("id")); err != nil {
-		notFound(w, err.Error())
-		return
+	tid := h.telegramID(r)
+	if err := h.store.DeleteCard(tid, r.PathValue("id")); err != nil {
+		notFound(w, err.Error()); return
 	}
-	h.broadcastBoard()
+	h.broadcastBoard(tid)
 	writeJSON(w, http.StatusOK, okResp(nil))
 }
 
-// POST /api/cards/move
 func (h *Handler) MoveCard(w http.ResponseWriter, r *http.Request) {
+	tid := h.telegramID(r)
 	var req MoveCardRequest
 	if err := decode(r, &req); err != nil {
-		badRequest(w, "invalid JSON: "+err.Error())
-		return
+		badRequest(w, "invalid JSON: "+err.Error()); return
 	}
 	if req.CardID == "" || req.FromColumnID == "" || req.ToColumnID == "" {
-		badRequest(w, "cardId, fromColumnId, toColumnId are required")
-		return
+		badRequest(w, "cardId, fromColumnId, toColumnId are required"); return
 	}
-
-	if err := h.store.MoveCard(&req); err != nil {
-		notFound(w, err.Error())
-		return
+	if err := h.store.MoveCard(tid, &req); err != nil {
+		notFound(w, err.Error()); return
 	}
-	h.broadcastBoard()
+	h.broadcastBoard(tid)
 	writeJSON(w, http.StatusOK, okResp(nil))
 }
 
-// ─── Columns ─────────────────────────────────────────────────────────────────
+// ─── Columns ──────────────────────────────────────────────────────────────────
 
-// GET /api/columns
 func (h *Handler) ListColumns(w http.ResponseWriter, r *http.Request) {
-	cols, err := h.store.ListColumns()
+	tid := h.telegramID(r)
+	cols, err := h.store.ListColumns(tid)
 	if err != nil {
-		internalError(w, err)
-		return
+		internalError(w, err); return
 	}
 	writeJSON(w, http.StatusOK, okResp(cols))
 }
 
-// GET /api/columns/{id}
 func (h *Handler) GetColumn(w http.ResponseWriter, r *http.Request) {
 	col, err := h.store.GetColumn(r.PathValue("id"))
 	if err != nil {
-		notFound(w, err.Error())
-		return
+		notFound(w, err.Error()); return
 	}
 	writeJSON(w, http.StatusOK, okResp(col))
 }
 
-// POST /api/columns
 func (h *Handler) CreateColumn(w http.ResponseWriter, r *http.Request) {
+	tid := h.telegramID(r)
 	var req AddColumnRequest
 	if err := decode(r, &req); err != nil {
-		badRequest(w, "invalid JSON: "+err.Error())
-		return
+		badRequest(w, "invalid JSON: "+err.Error()); return
 	}
 	if req.Title == "" {
-		badRequest(w, "title is required")
-		return
+		badRequest(w, "title is required"); return
 	}
-
-	col, err := h.store.CreateColumn(&req)
+	col, err := h.store.CreateColumn(tid, &req)
 	if err != nil {
-		internalError(w, err)
-		return
+		internalError(w, err); return
 	}
-	h.broadcastBoard()
+	h.broadcastBoard(tid)
 	writeJSON(w, http.StatusCreated, okResp(col))
 }
 
-// PUT /api/columns/{id}
 func (h *Handler) UpdateColumn(w http.ResponseWriter, r *http.Request) {
+	tid := h.telegramID(r)
 	var req UpdateColumnRequest
 	if err := decode(r, &req); err != nil {
-		badRequest(w, "invalid JSON: "+err.Error())
-		return
+		badRequest(w, "invalid JSON: "+err.Error()); return
 	}
-
-	col, err := h.store.UpdateColumn(r.PathValue("id"), &req)
+	col, err := h.store.UpdateColumn(tid, r.PathValue("id"), &req)
 	if err != nil {
-		notFound(w, err.Error())
-		return
+		notFound(w, err.Error()); return
 	}
-	h.broadcastBoard()
+	h.broadcastBoard(tid)
 	writeJSON(w, http.StatusOK, okResp(col))
 }
 
-// DELETE /api/columns/{id}
 func (h *Handler) DeleteColumn(w http.ResponseWriter, r *http.Request) {
-	if err := h.store.DeleteColumn(r.PathValue("id")); err != nil {
-		notFound(w, err.Error())
-		return
+	tid := h.telegramID(r)
+	if err := h.store.DeleteColumn(tid, r.PathValue("id")); err != nil {
+		notFound(w, err.Error()); return
 	}
-	h.broadcastBoard()
+	h.broadcastBoard(tid)
 	writeJSON(w, http.StatusOK, okResp(nil))
 }
 
 // ─── WebSocket ────────────────────────────────────────────────────────────────
 
-// GET /ws
 func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -232,16 +239,19 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := &Client{
-		hub:  h.hub,
-		conn: conn,
-		send: make(chan []byte, 256),
+	tid := h.telegramID(r)
+	// Ensure the user's board exists before subscribing
+	board, err := h.store.EnsureUserBoard(tid)
+	if err != nil {
+		conn.Close()
+		return
 	}
 
+	client := &Client{hub: h.hub, conn: conn, send: make(chan []byte, 256)}
 	h.hub.register <- client
 
-	// Push current board snapshot immediately to the new client
-	if data, err := json.Marshal(WSMessage{Type: "board_update", Payload: h.store.GetBoard()}); err == nil {
+	// Send current board state immediately
+	if data, err := json.Marshal(WSMessage{Type: "board_update", Payload: board}); err == nil {
 		select {
 		case client.send <- data:
 		default:
@@ -249,5 +259,5 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go client.writePump()
-	client.readPump() // blocks until disconnect
+	client.readPump()
 }

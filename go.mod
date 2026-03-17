@@ -1,4 +1,4 @@
-module github.com/asccclass/kanbanx
+module github.com/asccclass/kanbanX
 
 go 1.25.5
 
@@ -7,7 +7,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
 	github.com/mark3labs/mcp-go v0.45.0
-	github.com/mattn/go-sqlite3 v1.14.34
+	github.com/ncruces/go-sqlite3 v0.32.0
 )
 
 require (
@@ -20,7 +20,6 @@ require (
 	github.com/gorilla/sessions v1.4.0 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
-	github.com/ncruces/go-sqlite3 v0.32.0 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/tetratelabs/wazero v1.11.0 // indirect

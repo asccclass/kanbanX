@@ -15,46 +15,44 @@ import (
 
 // ─── SQLiteStore ──────────────────────────────────────────────────────────────
 
-// SQLiteStore is the persistence layer backed by SQLite.
-// It also maintains an in-memory cache of the full Board so WebSocket
-// broadcasts don't need a DB round-trip every time GetBoard() is called.
+// SQLiteStore is the persistence layer.
+// Board data is keyed by Telegram user ID; each Telegram user owns exactly one board.
+// A read-through cache (boardCache) avoids DB round-trips on every WebSocket broadcast.
 type SQLiteStore struct {
-	db          *sql.DB
-	mu          sync.RWMutex // guards cache
-	cachedBoard *Board
+	db         *sql.DB
+	mu         sync.RWMutex          // guards boardCache
+	boardCache map[string]*Board     // telegramID → *Board
 }
 
-// NewSQLiteStore opens (or creates) the SQLite database at path and runs
-// schema migrations.
 func NewSQLiteStore(path string) (*SQLiteStore, error) {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	// WAL mode: better concurrent read performance
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
 		return nil, err
 	}
 	if _, err := db.Exec(`PRAGMA foreign_keys=ON`); err != nil {
 		return nil, err
 	}
-	s := &SQLiteStore{db: db}
+	s := &SQLiteStore{db: db, boardCache: make(map[string]*Board)}
 	if err := s.migrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return s, nil
 }
 
-// Close releases the database connection.
 func (s *SQLiteStore) Close() error { return s.db.Close() }
 
-// ─── Schema Migration ─────────────────────────────────────────────────────────
+// ─── Schema ───────────────────────────────────────────────────────────────────
 
 const schema = `
+-- Each Telegram user owns exactly one board.
 CREATE TABLE IF NOT EXISTS boards (
-    id         TEXT PRIMARY KEY,
-    title      TEXT NOT NULL,
-    created_at DATETIME NOT NULL
+    id          TEXT PRIMARY KEY,
+    telegram_id TEXT NOT NULL UNIQUE,  -- Telegram numeric user ID (stored as text)
+    title       TEXT NOT NULL DEFAULT '我的看板',
+    created_at  DATETIME NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS columns (
@@ -73,7 +71,6 @@ CREATE TABLE IF NOT EXISTS cards (
     title       TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     priority    TEXT NOT NULL DEFAULT 'medium',
-    goal_type   TEXT NOT NULL DEFAULT '',
     assignee    TEXT NOT NULL DEFAULT '',
     labels      TEXT NOT NULL DEFAULT '[]',
     position    INTEGER NOT NULL DEFAULT 0,
@@ -82,32 +79,51 @@ CREATE TABLE IF NOT EXISTS cards (
     FOREIGN KEY (column_id) REFERENCES columns(id) ON DELETE CASCADE
 );
 
+CREATE INDEX IF NOT EXISTS idx_boards_telegram ON boards(telegram_id);
 CREATE INDEX IF NOT EXISTS idx_columns_board   ON columns(board_id, position);
 CREATE INDEX IF NOT EXISTS idx_cards_column    ON cards(column_id, position);
 `
 
 func (s *SQLiteStore) migrate() error {
-	if _, err := s.db.Exec(schema); err != nil {
-		return err
-	}
-	// Idempotent column addition for existing databases that pre-date goal_type
-	_, _ = s.db.Exec(`ALTER TABLE cards ADD COLUMN goal_type TEXT NOT NULL DEFAULT ''`)
-	return nil
+	_, err := s.db.Exec(schema)
+	return err
 }
 
-// ─── Seed ─────────────────────────────────────────────────────────────────────
+// ─── User Board Management ────────────────────────────────────────────────────
 
-// EnsureDefaultBoard creates the default board + seed data if no board exists.
-func (s *SQLiteStore) EnsureDefaultBoard() error {
-	var count int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM boards`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		// Board already exists; just warm the cache
-		return s.refreshCache()
+// EnsureUserBoard returns the board for a Telegram user, creating it (with default
+// columns) if this is their first time.
+func (s *SQLiteStore) EnsureUserBoard(telegramID string) (*Board, error) {
+	telegramID = strings.TrimSpace(telegramID)
+	if telegramID == "" {
+		return nil, fmt.Errorf("telegram_id is required")
 	}
 
+	// Check cache first
+	s.mu.RLock()
+	if b, ok := s.boardCache[telegramID]; ok {
+		s.mu.RUnlock()
+		return b, nil
+	}
+	s.mu.RUnlock()
+
+	// Check DB
+	var boardID string
+	err := s.db.QueryRow(`SELECT id FROM boards WHERE telegram_id=?`, telegramID).Scan(&boardID)
+	if err == sql.ErrNoRows {
+		// First time — seed a fresh board for this user
+		if err2 := s.seedUserBoard(telegramID); err2 != nil {
+			return nil, fmt.Errorf("seed board for %s: %w", telegramID, err2)
+		}
+	} else if err != nil {
+		return nil, err
+	}
+
+	return s.loadAndCacheBoard(telegramID)
+}
+
+// seedUserBoard creates a default board + columns for a brand-new Telegram user.
+func (s *SQLiteStore) seedUserBoard(telegramID string) error {
 	now := time.Now()
 	boardID := generateID()
 
@@ -117,104 +133,111 @@ func (s *SQLiteStore) EnsureDefaultBoard() error {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`INSERT INTO boards(id,title,created_at) VALUES(?,?,?)`,
-		boardID, "專案開發看板", now)
+	_, err = tx.Exec(
+		`INSERT INTO boards(id, telegram_id, title, created_at) VALUES(?,?,?,?)`,
+		boardID, telegramID, "我的看板", now,
+	)
 	if err != nil {
 		return err
 	}
 
-	type colSeed struct{ title, color string }
-	type cardSeed struct {
-		title, desc, priority, goalType, assignee string
-		labels                                     []string
+	defaultCols := []struct{ title, color string }{
+		{"待辦事項", "#6366f1"},
+		{"進行中",   "#f59e0b"},
+		{"審查中",   "#8b5cf6"},
+		{"已完成",   "#10b981"},
 	}
-	type seed struct {
-		col   colSeed
-		cards []cardSeed
-	}
-
-	seeds := []seed{
-		{colSeed{"待辦事項", "#6366f1"}, []cardSeed{
-			{"設計系統微服務架構", "規劃整體微服務架構、API Gateway 設計與技術選型評估", "high", "yearly", "Alice", []string{"架構", "設計"}},
-			{"建立 CI/CD Pipeline", "使用 GitHub Actions 建立自動化測試與部署流程", "medium", "monthly", "Bob", []string{"DevOps"}},
-			{"撰寫 API 規格文件", "使用 OpenAPI 3.0 規範撰寫完整 REST API 文件", "low", "", "Carol", []string{"文件"}},
-		}},
-		{colSeed{"進行中", "#f59e0b"}, []cardSeed{
-			{"實作 JWT 認證機制", "整合 OAuth 2.0 與 JWT，實作 Refresh Token 邏輯", "high", "weekly", "Dave", []string{"後端", "安全"}},
-			{"前端元件庫開發", "以 React + TypeScript 建立可重用 UI 元件系統", "medium", "", "Eve", []string{"前端"}},
-		}},
-		{colSeed{"審查中", "#8b5cf6"}, []cardSeed{
-			{"資料庫索引優化", "分析查詢效能瓶頸，針對高頻查詢建立複合索引", "medium", "monthly", "Frank", []string{"資料庫", "效能"}},
-		}},
-		{colSeed{"已完成", "#10b981"}, []cardSeed{
-			{"需求訪談與分析", "完成所有利害關係人訪談，產出需求規格書 v1.0", "low", "", "Grace", []string{"管理"}},
-			{"開發環境建置", "Docker Compose 本機開發環境、環境變數管理", "low", "", "Henry", []string{"DevOps"}},
-		}},
-	}
-
-	for colPos, s := range seeds {
-		colID := generateID()
+	for i, col := range defaultCols {
 		_, err = tx.Exec(
-			`INSERT INTO columns(id,board_id,title,color,position,created_at) VALUES(?,?,?,?,?,?)`,
-			colID, boardID, s.col.title, s.col.color, colPos, now,
+			`INSERT INTO columns(id, board_id, title, color, position, created_at) VALUES(?,?,?,?,?,?)`,
+			generateID(), boardID, col.title, col.color, i, now,
 		)
 		if err != nil {
 			return err
 		}
-		for cardPos, c := range s.cards {
-			lblJSON, _ := json.Marshal(c.labels)
-			_, err = tx.Exec(`
-				INSERT INTO cards(id,column_id,title,description,priority,goal_type,assignee,labels,position,created_at,updated_at)
-				VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-				generateID(), colID, c.title, c.desc, c.priority, c.goalType, c.assignee,
-				string(lblJSON), cardPos, now, now,
-			)
-			if err != nil {
-				return err
-			}
-		}
 	}
-
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	return s.refreshCache()
+	return tx.Commit()
 }
 
-// ─── Cache ────────────────────────────────────────────────────────────────────
-
-// refreshCache rebuilds the in-memory board from SQLite (must NOT hold mu).
-func (s *SQLiteStore) refreshCache() error {
-	board, err := s.loadBoard()
+// loadAndCacheBoard reads the full board for a Telegram user from DB and caches it.
+func (s *SQLiteStore) loadAndCacheBoard(telegramID string) (*Board, error) {
+	board, err := s.loadBoardByTelegramID(telegramID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	s.mu.Lock()
-	s.cachedBoard = board
+	s.boardCache[telegramID] = board
 	s.mu.Unlock()
-	return nil
+	return board, nil
 }
 
-// GetBoard returns the cached board snapshot (safe for concurrent reads).
+// refreshUserCache reloads the board for telegramID from DB and updates the cache.
+func (s *SQLiteStore) refreshUserCache(telegramID string) error {
+	_, err := s.loadAndCacheBoard(telegramID)
+	return err
+}
+
+// GetCachedBoard returns the cached board for a user (may be nil if not yet loaded).
+func (s *SQLiteStore) GetCachedBoard(telegramID string) *Board {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.boardCache[telegramID]
+}
+
+// GetBoard is the legacy single-board accessor used by the HTTP layer.
+// It returns the first board found (used only by web UI admin view).
 func (s *SQLiteStore) GetBoard() *Board {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.cachedBoard
+	for _, b := range s.boardCache {
+		return b
+	}
+	return &Board{Title: "看板", Columns: []*Column{}}
 }
 
-// ─── loadBoard (private, reads DB) ───────────────────────────────────────────
-
-func (s *SQLiteStore) loadBoard() (*Board, error) {
-	row := s.db.QueryRow(`SELECT id, title, created_at FROM boards LIMIT 1`)
-	board := &Board{}
-	if err := row.Scan(&board.ID, &board.Title, &board.CreatedAt); err != nil {
-		if err == sql.ErrNoRows {
-			return &Board{Title: "看板", Columns: []*Column{}}, nil
-		}
+// ListAllUsers returns all Telegram users who have a board.
+func (s *SQLiteStore) ListAllUsers() ([]*TelegramUser, error) {
+	rows, err := s.db.Query(
+		`SELECT telegram_id, title, created_at FROM boards ORDER BY created_at`)
+	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+	var users []*TelegramUser
+	for rows.Next() {
+		u := &TelegramUser{}
+		if err := rows.Scan(&u.TelegramID, &u.DisplayName, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	if users == nil {
+		users = []*TelegramUser{}
+	}
+	return users, nil
+}
 
-	// Load columns
+// UpdateBoardTitle renames the board for a Telegram user.
+func (s *SQLiteStore) UpdateBoardTitle(telegramID, title string) error {
+	_, err := s.db.Exec(`UPDATE boards SET title=? WHERE telegram_id=?`, title, telegramID)
+	if err != nil {
+		return err
+	}
+	return s.refreshUserCache(telegramID)
+}
+
+// ─── Private DB load ──────────────────────────────────────────────────────────
+
+func (s *SQLiteStore) loadBoardByTelegramID(telegramID string) (*Board, error) {
+	board := &Board{}
+	err := s.db.QueryRow(
+		`SELECT id, telegram_id, title, created_at FROM boards WHERE telegram_id=?`,
+		telegramID,
+	).Scan(&board.ID, &board.TelegramID, &board.Title, &board.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("board not found for telegram_id %s: %w", telegramID, err)
+	}
+
 	colRows, err := s.db.Query(
 		`SELECT id, board_id, title, color, position, created_at
 		 FROM columns WHERE board_id=? ORDER BY position`, board.ID)
@@ -235,19 +258,18 @@ func (s *SQLiteStore) loadBoard() (*Board, error) {
 		board.Columns = []*Column{}
 	}
 
-	// Load all cards in one query, then distribute into columns
-	cardRows, err := s.db.Query(
-		`SELECT id, column_id, title, description, priority, goal_type, assignee,
-		        labels, position, created_at, updated_at
-		 FROM cards
-		 WHERE column_id IN (SELECT id FROM columns WHERE board_id=?)
-		 ORDER BY column_id, position`, board.ID)
+	// Load all cards for this board in one query
+	cardRows, err := s.db.Query(`
+		SELECT id, column_id, title, description, priority, assignee,
+		       labels, position, created_at, updated_at
+		FROM cards
+		WHERE column_id IN (SELECT id FROM columns WHERE board_id=?)
+		ORDER BY column_id, position`, board.ID)
 	if err != nil {
 		return nil, err
 	}
 	defer cardRows.Close()
 
-	// Index columns for fast lookup
 	colMap := make(map[string]*Column, len(board.Columns))
 	for _, c := range board.Columns {
 		colMap[c.ID] = c
@@ -257,9 +279,8 @@ func (s *SQLiteStore) loadBoard() (*Board, error) {
 		card := &Card{}
 		var labelsJSON string
 		if err := cardRows.Scan(&card.ID, &card.ColumnID, &card.Title,
-			&card.Description, &card.Priority, &card.GoalType, &card.Assignee,
-			&labelsJSON, &card.Position,
-			&card.CreatedAt, &card.UpdatedAt); err != nil {
+			&card.Description, &card.Priority, &card.Assignee,
+			&labelsJSON, &card.Position, &card.CreatedAt, &card.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(labelsJSON), &card.Labels); err != nil {
@@ -269,31 +290,29 @@ func (s *SQLiteStore) loadBoard() (*Board, error) {
 			col.Cards = append(col.Cards, card)
 		}
 	}
-
 	return board, nil
 }
 
-// ─── Board ────────────────────────────────────────────────────────────────────
-
-// GetBoardID returns the ID of the first (and only) board.
-func (s *SQLiteStore) GetBoardID() (string, error) {
-	var id string
-	err := s.db.QueryRow(`SELECT id FROM boards LIMIT 1`).Scan(&id)
-	return id, err
+// getBoardIDForTelegramUser resolves board ID — used internally before card/column ops.
+func (s *SQLiteStore) getBoardIDForTelegramUser(telegramID string) (string, error) {
+	board, err := s.EnsureUserBoard(telegramID)
+	if err != nil {
+		return "", err
+	}
+	return board.ID, nil
 }
 
 // ─── Cards ────────────────────────────────────────────────────────────────────
 
-// GetCard fetches a single card by ID.
 func (s *SQLiteStore) GetCard(id string) (*Card, error) {
 	card := &Card{}
 	var labelsJSON string
 	err := s.db.QueryRow(`
-		SELECT id, column_id, title, description, priority, goal_type, assignee,
+		SELECT id, column_id, title, description, priority, assignee,
 		       labels, position, created_at, updated_at
 		FROM cards WHERE id=?`, id).Scan(
 		&card.ID, &card.ColumnID, &card.Title, &card.Description,
-		&card.Priority, &card.GoalType, &card.Assignee, &labelsJSON,
+		&card.Priority, &card.Assignee, &labelsJSON,
 		&card.Position, &card.CreatedAt, &card.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -308,24 +327,21 @@ func (s *SQLiteStore) GetCard(id string) (*Card, error) {
 	return card, nil
 }
 
-// ListCards returns all cards in a column (ordered by position).
 func (s *SQLiteStore) ListCards(columnID string) ([]*Card, error) {
 	rows, err := s.db.Query(`
-		SELECT id, column_id, title, description, priority, goal_type, assignee,
+		SELECT id, column_id, title, description, priority, assignee,
 		       labels, position, created_at, updated_at
 		FROM cards WHERE column_id=? ORDER BY position`, columnID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
 	var cards []*Card
 	for rows.Next() {
 		card := &Card{}
 		var labelsJSON string
-		if err := rows.Scan(&card.ID, &card.ColumnID, &card.Title,
-			&card.Description, &card.Priority, &card.GoalType, &card.Assignee,
-			&labelsJSON, &card.Position,
+		if err := rows.Scan(&card.ID, &card.ColumnID, &card.Title, &card.Description,
+			&card.Priority, &card.Assignee, &labelsJSON, &card.Position,
 			&card.CreatedAt, &card.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -337,19 +353,19 @@ func (s *SQLiteStore) ListCards(columnID string) ([]*Card, error) {
 	return cards, nil
 }
 
-// CreateCard inserts a new card into a column.
-func (s *SQLiteStore) CreateCard(req *AddCardRequest) (*Card, error) {
+func (s *SQLiteStore) CreateCard(telegramID string, req *AddCardRequest) (*Card, error) {
 	if req.Priority == "" || !req.Priority.Valid() {
 		req.Priority = PriorityMedium
-	}
-	if !req.GoalType.Valid() {
-		req.GoalType = GoalNone
 	}
 	if req.Labels == nil {
 		req.Labels = []string{}
 	}
 
-	// Determine next position
+	// Verify the column belongs to this user's board
+	if err := s.assertColumnOwnership(telegramID, req.ColumnID); err != nil {
+		return nil, err
+	}
+
 	var maxPos int
 	s.db.QueryRow(`SELECT COALESCE(MAX(position)+1,0) FROM cards WHERE column_id=?`,
 		req.ColumnID).Scan(&maxPos)
@@ -361,50 +377,46 @@ func (s *SQLiteStore) CreateCard(req *AddCardRequest) (*Card, error) {
 		Title:       req.Title,
 		Description: req.Description,
 		Priority:    req.Priority,
-		GoalType:    req.GoalType,
 		Assignee:    req.Assignee,
 		Labels:      req.Labels,
 		Position:    maxPos,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-
 	lblJSON, _ := json.Marshal(card.Labels)
 	_, err := s.db.Exec(`
-		INSERT INTO cards(id,column_id,title,description,priority,goal_type,assignee,
+		INSERT INTO cards(id,column_id,title,description,priority,assignee,
 		                  labels,position,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES(?,?,?,?,?,?,?,?,?,?)`,
 		card.ID, card.ColumnID, card.Title, card.Description,
-		string(card.Priority), string(card.GoalType), card.Assignee, string(lblJSON),
+		string(card.Priority), card.Assignee, string(lblJSON),
 		card.Position, card.CreatedAt, card.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
-
-	if err := s.refreshCache(); err != nil {
-		log.Printf("[DB] cache refresh error: %v", err)
+	if err := s.refreshUserCache(telegramID); err != nil {
+		log.Printf("[DB] cache refresh: %v", err)
 	}
 	return card, nil
 }
 
-// UpdateCard modifies an existing card's fields.
-func (s *SQLiteStore) UpdateCard(id string, req *UpdateCardRequest) (*Card, error) {
+func (s *SQLiteStore) UpdateCard(telegramID, id string, req *UpdateCardRequest) (*Card, error) {
+	if err := s.assertCardOwnership(telegramID, id); err != nil {
+		return nil, err
+	}
 	if req.Priority != "" && !req.Priority.Valid() {
 		req.Priority = PriorityMedium
 	}
 	if req.Labels == nil {
 		req.Labels = []string{}
 	}
-
 	now := time.Now()
 	lblJSON, _ := json.Marshal(req.Labels)
-
 	res, err := s.db.Exec(`
-		UPDATE cards
-		SET title=?, description=?, priority=?, goal_type=?, assignee=?, labels=?, updated_at=?
+		UPDATE cards SET title=?, description=?, priority=?, assignee=?, labels=?, updated_at=?
 		WHERE id=?`,
-		req.Title, req.Description, string(req.Priority), string(req.GoalType),
+		req.Title, req.Description, string(req.Priority),
 		req.Assignee, string(lblJSON), now, id,
 	)
 	if err != nil {
@@ -414,15 +426,16 @@ func (s *SQLiteStore) UpdateCard(id string, req *UpdateCardRequest) (*Card, erro
 	if n == 0 {
 		return nil, fmt.Errorf("card not found: %s", id)
 	}
-
-	if err := s.refreshCache(); err != nil {
-		log.Printf("[DB] cache refresh error: %v", err)
+	if err := s.refreshUserCache(telegramID); err != nil {
+		log.Printf("[DB] cache refresh: %v", err)
 	}
 	return s.GetCard(id)
 }
 
-// DeleteCard removes a card permanently.
-func (s *SQLiteStore) DeleteCard(id string) error {
+func (s *SQLiteStore) DeleteCard(telegramID, id string) error {
+	if err := s.assertCardOwnership(telegramID, id); err != nil {
+		return err
+	}
 	res, err := s.db.Exec(`DELETE FROM cards WHERE id=?`, id)
 	if err != nil {
 		return err
@@ -431,115 +444,41 @@ func (s *SQLiteStore) DeleteCard(id string) error {
 	if n == 0 {
 		return fmt.Errorf("card not found: %s", id)
 	}
-	return s.refreshCache()
+	return s.refreshUserCache(telegramID)
 }
 
-// MoveCard moves a card to another column at a specific index,
-// then re-sequences positions for both affected columns.
-func (s *SQLiteStore) MoveCard(req *MoveCardRequest) error {
+func (s *SQLiteStore) MoveCard(telegramID string, req *MoveCardRequest) error {
+	if err := s.assertCardOwnership(telegramID, req.CardID); err != nil {
+		return err
+	}
+	if err := s.assertColumnOwnership(telegramID, req.ToColumnID); err != nil {
+		return err
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	// Verify card exists
-	var colID string
-	if err := tx.QueryRow(`SELECT column_id FROM cards WHERE id=?`, req.CardID).Scan(&colID); err != nil {
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("card not found: %s", req.CardID)
-		}
-		return err
-	}
-
-	// Move card to target column
 	now := time.Now()
 	if _, err := tx.Exec(`UPDATE cards SET column_id=?, updated_at=? WHERE id=?`,
 		req.ToColumnID, now, req.CardID); err != nil {
 		return err
 	}
-
-	// Re-sequence source column
 	if err := resequence(tx, req.FromColumnID, req.CardID); err != nil {
 		return err
 	}
-
-	// Re-sequence target column, inserting our card at the desired index
 	if err := insertAtIndex(tx, req.ToColumnID, req.CardID, req.ToIndex); err != nil {
 		return err
 	}
-
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	return s.refreshCache()
+	return s.refreshUserCache(telegramID)
 }
 
-// resequence renumbers positions for a column, skipping excludeID.
-func resequence(tx *sql.Tx, columnID, excludeID string) error {
-	rows, err := tx.Query(
-		`SELECT id FROM cards WHERE column_id=? AND id!=? ORDER BY position`, columnID, excludeID)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
+// ─── Columns ──────────────────────────────────────────────────────────────────
 
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return err
-		}
-		ids = append(ids, id)
-	}
-	for i, id := range ids {
-		if _, err := tx.Exec(`UPDATE cards SET position=? WHERE id=?`, i, id); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// insertAtIndex places cardID at the given index within columnID.
-func insertAtIndex(tx *sql.Tx, columnID, cardID string, idx int) error {
-	rows, err := tx.Query(
-		`SELECT id FROM cards WHERE column_id=? AND id!=? ORDER BY position`, columnID, cardID)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return err
-		}
-		ids = append(ids, id)
-	}
-
-	// Clamp index
-	if idx < 0 || idx > len(ids) {
-		idx = len(ids)
-	}
-
-	// Insert the moved card at idx
-	all := make([]string, 0, len(ids)+1)
-	all = append(all, ids[:idx]...)
-	all = append(all, cardID)
-	all = append(all, ids[idx:]...)
-
-	for i, id := range all {
-		if _, err := tx.Exec(`UPDATE cards SET position=? WHERE id=?`, i, id); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ─── Columns ─────────────────────────────────────────────────────────────────
-
-// GetColumn fetches a single column with its cards.
 func (s *SQLiteStore) GetColumn(id string) (*Column, error) {
 	col := &Column{}
 	err := s.db.QueryRow(
@@ -559,9 +498,8 @@ func (s *SQLiteStore) GetColumn(id string) (*Column, error) {
 	return col, nil
 }
 
-// ListColumns returns all columns for the board (without card details).
-func (s *SQLiteStore) ListColumns() ([]*Column, error) {
-	boardID, err := s.GetBoardID()
+func (s *SQLiteStore) ListColumns(telegramID string) ([]*Column, error) {
+	boardID, err := s.getBoardIDForTelegramUser(telegramID)
 	if err != nil {
 		return nil, err
 	}
@@ -572,7 +510,6 @@ func (s *SQLiteStore) ListColumns() ([]*Column, error) {
 		return nil, err
 	}
 	defer rows.Close()
-
 	var cols []*Column
 	for rows.Next() {
 		col := &Column{Cards: []*Card{}}
@@ -582,33 +519,27 @@ func (s *SQLiteStore) ListColumns() ([]*Column, error) {
 		}
 		cols = append(cols, col)
 	}
+	if cols == nil {
+		cols = []*Column{}
+	}
 	return cols, nil
 }
 
-// CreateColumn appends a new column to the board.
-func (s *SQLiteStore) CreateColumn(req *AddColumnRequest) (*Column, error) {
+func (s *SQLiteStore) CreateColumn(telegramID string, req *AddColumnRequest) (*Column, error) {
 	if req.Color == "" {
 		req.Color = "#6366f1"
 	}
-	boardID, err := s.GetBoardID()
+	boardID, err := s.getBoardIDForTelegramUser(telegramID)
 	if err != nil {
 		return nil, err
 	}
-
 	var maxPos int
 	s.db.QueryRow(`SELECT COALESCE(MAX(position)+1,0) FROM columns WHERE board_id=?`, boardID).Scan(&maxPos)
-
 	now := time.Now()
 	col := &Column{
-		ID:        generateID(),
-		BoardID:   boardID,
-		Title:     req.Title,
-		Color:     req.Color,
-		Position:  maxPos,
-		Cards:     []*Card{},
-		CreatedAt: now,
+		ID: generateID(), BoardID: boardID, Title: req.Title,
+		Color: req.Color, Position: maxPos, Cards: []*Card{}, CreatedAt: now,
 	}
-
 	_, err = s.db.Exec(
 		`INSERT INTO columns(id,board_id,title,color,position,created_at) VALUES(?,?,?,?,?,?)`,
 		col.ID, col.BoardID, col.Title, col.Color, col.Position, col.CreatedAt,
@@ -616,34 +547,28 @@ func (s *SQLiteStore) CreateColumn(req *AddColumnRequest) (*Column, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	if err := s.refreshCache(); err != nil {
-		log.Printf("[DB] cache refresh error: %v", err)
+	if err := s.refreshUserCache(telegramID); err != nil {
+		log.Printf("[DB] cache refresh: %v", err)
 	}
 	return col, nil
 }
 
-// UpdateColumn modifies a column's title and/or color.
-func (s *SQLiteStore) UpdateColumn(id string, req *UpdateColumnRequest) (*Column, error) {
-	// Build dynamic UPDATE to avoid overwriting unchanged fields
-	parts := []string{}
-	args := []interface{}{}
+func (s *SQLiteStore) UpdateColumn(telegramID, id string, req *UpdateColumnRequest) (*Column, error) {
+	if err := s.assertColumnOwnership(telegramID, id); err != nil {
+		return nil, err
+	}
+	parts, args := []string{}, []interface{}{}
 	if req.Title != "" {
-		parts = append(parts, "title=?")
-		args = append(args, req.Title)
+		parts = append(parts, "title=?"); args = append(args, req.Title)
 	}
 	if req.Color != "" {
-		parts = append(parts, "color=?")
-		args = append(args, req.Color)
+		parts = append(parts, "color=?"); args = append(args, req.Color)
 	}
 	if len(parts) == 0 {
 		return s.GetColumn(id)
 	}
 	args = append(args, id)
-
-	res, err := s.db.Exec(
-		`UPDATE columns SET `+strings.Join(parts, ",")+` WHERE id=?`, args...,
-	)
+	res, err := s.db.Exec(`UPDATE columns SET `+strings.Join(parts, ",")+` WHERE id=?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -651,15 +576,16 @@ func (s *SQLiteStore) UpdateColumn(id string, req *UpdateColumnRequest) (*Column
 	if n == 0 {
 		return nil, fmt.Errorf("column not found: %s", id)
 	}
-
-	if err := s.refreshCache(); err != nil {
-		log.Printf("[DB] cache refresh error: %v", err)
+	if err := s.refreshUserCache(telegramID); err != nil {
+		log.Printf("[DB] cache refresh: %v", err)
 	}
 	return s.GetColumn(id)
 }
 
-// DeleteColumn removes a column and all its cards (ON DELETE CASCADE).
-func (s *SQLiteStore) DeleteColumn(id string) error {
+func (s *SQLiteStore) DeleteColumn(telegramID, id string) error {
+	if err := s.assertColumnOwnership(telegramID, id); err != nil {
+		return err
+	}
 	res, err := s.db.Exec(`DELETE FROM columns WHERE id=?`, id)
 	if err != nil {
 		return err
@@ -668,5 +594,131 @@ func (s *SQLiteStore) DeleteColumn(id string) error {
 	if n == 0 {
 		return fmt.Errorf("column not found: %s", id)
 	}
-	return s.refreshCache()
+	return s.refreshUserCache(telegramID)
+}
+
+// ─── Ownership Guards ─────────────────────────────────────────────────────────
+// Prevent a user from touching another user's data.
+
+func (s *SQLiteStore) assertColumnOwnership(telegramID, columnID string) error {
+	boardID, err := s.getBoardIDForTelegramUser(telegramID)
+	if err != nil {
+		return err
+	}
+	var owner string
+	err = s.db.QueryRow(`SELECT board_id FROM columns WHERE id=?`, columnID).Scan(&owner)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("column not found: %s", columnID)
+	}
+	if err != nil {
+		return err
+	}
+	if owner != boardID {
+		return fmt.Errorf("column %s does not belong to your board", columnID)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) assertCardOwnership(telegramID, cardID string) error {
+	boardID, err := s.getBoardIDForTelegramUser(telegramID)
+	if err != nil {
+		return err
+	}
+	var colBoardID string
+	err = s.db.QueryRow(`
+		SELECT c.board_id FROM columns c
+		JOIN cards k ON k.column_id = c.id
+		WHERE k.id=?`, cardID).Scan(&colBoardID)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("card not found: %s", cardID)
+	}
+	if err != nil {
+		return err
+	}
+	if colBoardID != boardID {
+		return fmt.Errorf("card %s does not belong to your board", cardID)
+	}
+	return nil
+}
+
+// ─── Position helpers ─────────────────────────────────────────────────────────
+
+func resequence(tx *sql.Tx, columnID, excludeID string) error {
+	rows, err := tx.Query(
+		`SELECT id FROM cards WHERE column_id=? AND id!=? ORDER BY position`, columnID, excludeID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	for i, id := range ids {
+		if _, err := tx.Exec(`UPDATE cards SET position=? WHERE id=?`, i, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func insertAtIndex(tx *sql.Tx, columnID, cardID string, idx int) error {
+	rows, err := tx.Query(
+		`SELECT id FROM cards WHERE column_id=? AND id!=? ORDER BY position`, columnID, cardID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if idx < 0 || idx > len(ids) {
+		idx = len(ids)
+	}
+	all := make([]string, 0, len(ids)+1)
+	all = append(all, ids[:idx]...)
+	all = append(all, cardID)
+	all = append(all, ids[idx:]...)
+	for i, id := range all {
+		if _, err := tx.Exec(`UPDATE cards SET position=? WHERE id=?`, i, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ─── Legacy / HTTP helpers ────────────────────────────────────────────────────
+// These wrappers let the existing HTTP handlers work with the first available user's board.
+
+func (s *SQLiteStore) EnsureDefaultBoard() error {
+	// For the web UI: load all existing boards into cache
+	rows, err := s.db.Query(`SELECT telegram_id FROM boards`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tid string
+		if err := rows.Scan(&tid); err != nil {
+			return err
+		}
+		if _, err := s.loadAndCacheBoard(tid); err != nil {
+			log.Printf("[DB] preload board %s: %v", tid, err)
+		}
+	}
+	return nil
+}
+
+// GetBoardID returns the board ID for a telegram user (auto-creating if needed).
+func (s *SQLiteStore) GetBoardID(telegramID string) (string, error) {
+	return s.getBoardIDForTelegramUser(telegramID)
 }
