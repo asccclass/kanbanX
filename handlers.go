@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strings"
-
 )
 
 type Handler struct {
@@ -42,12 +42,28 @@ func decode(r *http.Request, v interface{}) error {
 	return json.NewDecoder(r.Body).Decode(v)
 }
 
-// telegramID extracts Telegram ID from ?telegram_id= query param or JSON body field.
-// Falls back to a default "admin" sentinel so the web UI still works without a Telegram ID.
+// telegramID extracts User ID based on USER_SOURCE and DEFAULT_USER_ID.
+// Logic:
+// 1. If USER_SOURCE=personal, always return DEFAULT_USER_ID.
+// 2. Otherwise, check for telegram_id in query parameters.
+// 3. Fallback to DEFAULT_USER_ID if it exists.
+// 4. Final fallback to "web_admin".
 func (h *Handler) telegramID(r *http.Request) string {
+	userSource := os.Getenv("USER_SOURCE")
+	defaultUserID := os.Getenv("DEFAULT_USER_ID")
+
+	if userSource == "personal" && defaultUserID != "" {
+		return defaultUserID
+	}
+
 	if tid := strings.TrimSpace(r.URL.Query().Get("telegram_id")); tid != "" {
 		return tid
 	}
+
+	if defaultUserID != "" {
+		return defaultUserID
+	}
+
 	return "web_admin" // Web UI uses a shared admin board
 }
 

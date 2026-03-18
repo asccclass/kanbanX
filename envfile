@@ -3,3 +3,5 @@ PORT=8080
 DocumentRoot=www/html
 TemplateRoot=www/template
 DBPath=kanban.db
+USER_SOURCE=personal
+DEFAULT_USER_ID=119511
