@@ -5,7 +5,7 @@
 KanbanX 是一套雙模式任務管理工具：
 
 - **HTTP 網頁模式**：深色科技主題看板，即時多人協作，WebSocket 推播同步
-- **MCP 模式**：供 OpenClaw / Claude Desktop 透過自然語言控制看板，每個 Telegram 用戶擁有獨立隔離的個人看板
+- **MCP 模式**：供 OpenClaw / Claude Desktop / Antigravity 等 MCP 客戶端透過自然語言控制看板，每個 Telegram 用戶擁有獨立隔離的個人看板
 
 兩種模式共用同一個 SQLite 資料庫，資料即時互通。
 
@@ -17,12 +17,13 @@ KanbanX 是一套雙模式任務管理工具：
 2. [編譯](#編譯)
 3. [HTTP 網頁伺服器](#http-網頁伺服器)
 4. [MCP 伺服器（OpenClaw / Claude Desktop）](#mcp-伺服器)
-5. [REST API 參考](#rest-api-參考)
-6. [MCP 工具參考](#mcp-工具參考)
-7. [環境設定](#環境設定)
-8. [Docker 部署](#docker-部署)
-9. [專案結構](#專案結構)
-10. [資料庫 Schema](#資料庫-schema)
+5. [MCP 伺服器（Antigravity）](#mcp-伺服器antigravity)
+6. [REST API 參考](#rest-api-參考)
+7. [MCP 工具參考](#mcp-工具參考)
+8. [環境設定](#環境設定)
+9. [Docker 部署](#docker-部署)
+10. [專案結構](#專案結構)
+11. [資料庫 Schema](#資料庫-schema)
 
 ---
 
@@ -190,7 +191,120 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | ./kanban --m
 
 ---
 
-## REST API 參考
+## MCP 伺服器（Antigravity）
+
+Antigravity 是 Google 的 AI-first 開發環境，支援 MCP 協定，可直接呼叫 KanbanX 的工具進行任務管理。
+
+### 方法一：stdio 直連（推薦優先嘗試）
+
+#### 第一步：編譯 KanbanX
+
+```bash
+cd kanban
+CGO_ENABLED=0 go build -mod=vendor -o kanban .
+```
+
+#### 第二步：開啟 Antigravity MCP 設定
+
+在 Antigravity 中：**Agent 側邊面板 → MCP Servers → Manage MCP Servers → View raw config**
+
+加入以下設定：
+
+```json
+{
+  "mcpServers": {
+    "kanbanx": {
+      "command": "/絕對路徑/kanban",
+      "args": ["--mcp"],
+      "env": {
+        "DBPath": "/絕對路徑/kanban.db"
+      },
+      "disabled": false
+    }
+  }
+}
+```
+
+**路徑範例：**
+
+```json
+// macOS / Linux
+"command": "/Users/yourname/projects/kanban/kanban"
+
+// Windows
+"command": "C:\\Users\\yourname\\projects\\kanban\\kanban.exe"
+```
+
+#### 第三步：儲存並重新整理
+
+儲存後，回到 **Manage MCP servers** 頁面點擊 **Refresh**，16 個工具清單會出現在 Agent 面板中。
+
+---
+
+### 方法二：HTTP 模式（若 stdio 不穩定時使用）
+
+若直連 stdio 有問題，可透過 `mcp-remote` 搭配 HTTP transport 連線。
+
+首先修改 `mcp_server.go` 的 `RunMCPServer` 函式，將 `ServeStdio` 替換為 `NewStreamableHTTPServer` 監聽指定 port，然後使用以下設定：
+
+```json
+{
+  "mcpServers": {
+    "kanbanx": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@0.1.31",
+        "http://localhost:3001/mcp",
+        "--transport",
+        "http-only"
+      ],
+      "disabled": false
+    }
+  }
+}
+```
+
+同時啟動 KanbanX HTTP MCP server：
+
+```bash
+./kanban --mcp --port 3001
+```
+
+---
+
+### 在 Antigravity 中使用
+
+由於 Antigravity 不是 Telegram Bot 環境，使用時需在 prompt 中明確指定 `telegram_id`：
+
+```
+# 查看看板
+我的 telegram_id 是 123456789，請幫我顯示目前看板上的所有任務。
+
+# 新增任務
+telegram_id: 123456789 — 幫我在「待辦事項」欄位新增一個高優先任務：重構登入模組
+
+# 標記完成
+telegram_id 123456789，把「重構登入模組」標記為已完成。
+
+# 查看統計
+用 telegram_id 123456789 取得看板統計摘要。
+```
+
+> **提示**：可在 Antigravity 的 System Prompt 中預設 `telegram_id`，這樣每次對話就不需要重複輸入：
+> ```
+> 我的 KanbanX telegram_id 是 123456789，使用 KanbanX 工具時請自動帶入此 ID。
+> ```
+
+---
+
+### 與其他 MCP 客戶端的比較
+
+| 項目 | OpenClaw | Claude Desktop | Antigravity |
+|------|----------|----------------|-------------|
+| 設定檔 | `mcp_config.json` | `claude_desktop_config.json` | Agent 面板 / `mcp.json` |
+| Telegram ID 來源 | Telegram 對話自動注入 | 手動在 prompt 指定 | 手動在 prompt 指定，或寫入 System Prompt |
+| 適合情境 | Telegram Bot 互動 | 一般 AI 助理 | 程式開發輔助 |
+| SKILL.md | 放入 `/mnt/skills/user/` | 不需要 | 不需要 |
 
 所有 API 均回傳統一格式：
 
