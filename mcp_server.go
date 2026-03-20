@@ -48,7 +48,19 @@ func RunMCPServer(dbPath string) {
 //   2. Scope all reads and writes to that user's data only.
 //   3. Prevent one user from accessing another user's data.
 
-const telegramIDDesc = "Telegram 用戶的數字 ID（例如 123456789）。必填，用於識別用戶並存取其個人看板。"
+const telegramIDDesc = "Telegram 用戶的數字 ID。若設為個人使用模式，此欄位可省略，將使用預設的個人 ID。"
+
+func getUserID(req mcp.CallToolRequest) (string, error) {
+	tid := req.GetString("telegram_id", "")
+	if tid != "" {
+		return tid, nil
+	}
+	defaultID := os.Getenv("DEFAULT_USER_ID")
+	if defaultID != "" {
+		return defaultID, nil
+	}
+	return "", fmt.Errorf("telegram_id is required or DEFAULT_USER_ID must be set")
+}
 
 func registerTools(s *server.MCPServer, store *SQLiteStore) {
 
@@ -56,10 +68,13 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("get_my_board",
 			mcp.WithDescription("取得用戶的個人看板（含所有欄位與任務卡）。首次呼叫時會自動建立預設看板。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			board, err := store.EnsureUserBoard(tid)
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
@@ -72,10 +87,13 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("get_my_stats",
 			mcp.WithDescription("取得用戶看板的統計摘要：欄位數、任務總數、各欄位優先級分佈。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			board, err := store.EnsureUserBoard(tid)
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
@@ -115,11 +133,14 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("rename_my_board",
 			mcp.WithDescription("重新命名用戶的個人看板標題。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("title", mcp.Required(), mcp.Description("新的看板標題")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			title := req.GetString("title", "")
 			if strings.TrimSpace(title) == "" {
 				return mcp.NewToolResultError("title is required"), nil
@@ -135,10 +156,13 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("list_columns",
 			mcp.WithDescription("列出用戶看板的所有欄位（不含任務卡詳情）。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			cols, err := store.ListColumns(tid)
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
@@ -151,12 +175,15 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("create_column",
 			mcp.WithDescription("在用戶的看板新增一個欄位。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("title", mcp.Required(), mcp.Description("欄位名稱")),
 			mcp.WithString("color", mcp.Description("欄位顏色（十六進位），預設 #6366f1")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			title := req.GetString("title", "")
 			if strings.TrimSpace(title) == "" {
 				return mcp.NewToolResultError("title is required"), nil
@@ -175,13 +202,16 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("update_column",
 			mcp.WithDescription("更新用戶看板中某欄位的名稱或顏色。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("column_id", mcp.Required(), mcp.Description("欄位 ID")),
 			mcp.WithString("title", mcp.Description("新的欄位名稱")),
 			mcp.WithString("color", mcp.Description("新的顏色（十六進位）")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			col, err := store.UpdateColumn(tid, req.GetString("column_id", ""),
 				&UpdateColumnRequest{
 					Title: req.GetString("title", ""),
@@ -198,11 +228,14 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("delete_column",
 			mcp.WithDescription("刪除用戶看板中的某欄位及其所有任務卡（不可復原）。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("column_id", mcp.Required(), mcp.Description("要刪除的欄位 ID")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			if err := store.DeleteColumn(tid, req.GetString("column_id", "")); err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -214,11 +247,14 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("list_cards",
 			mcp.WithDescription("列出用戶某欄位內的所有任務卡（依 position 排序）。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("column_id", mcp.Required(), mcp.Description("欄位 ID")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			colID := req.GetString("column_id", "")
 			if err := store.assertColumnOwnership(tid, colID); err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
@@ -235,11 +271,14 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("get_card",
 			mcp.WithDescription("取得用戶某張任務卡的完整資訊。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("card_id", mcp.Required(), mcp.Description("任務卡 ID")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			cardID := req.GetString("card_id", "")
 			if err := store.assertCardOwnership(tid, cardID); err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
@@ -256,7 +295,7 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("create_card",
 			mcp.WithDescription("在用戶指定欄位新增一張任務卡。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("column_id", mcp.Required(), mcp.Description("目標欄位 ID")),
 			mcp.WithString("title", mcp.Required(), mcp.Description("任務標題")),
 			mcp.WithString("description", mcp.Description("任務詳細描述")),
@@ -265,7 +304,10 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 			mcp.WithString("labels", mcp.Description("標籤（逗號分隔），例如：工作,重要,今日")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			title := req.GetString("title", "")
 			if strings.TrimSpace(title) == "" {
 				return mcp.NewToolResultError("title is required"), nil
@@ -289,7 +331,7 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("update_card",
 			mcp.WithDescription("更新用戶某張任務卡的內容。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("card_id", mcp.Required(), mcp.Description("任務卡 ID")),
 			mcp.WithString("title", mcp.Required(), mcp.Description("新的任務標題")),
 			mcp.WithString("description", mcp.Description("新的描述")),
@@ -298,7 +340,10 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 			mcp.WithString("labels", mcp.Description("新標籤（逗號分隔），留空則清除")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			title := req.GetString("title", "")
 			if strings.TrimSpace(title) == "" {
 				return mcp.NewToolResultError("title is required"), nil
@@ -321,11 +366,14 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("delete_card",
 			mcp.WithDescription("永久刪除用戶的某張任務卡（不可復原）。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("card_id", mcp.Required(), mcp.Description("任務卡 ID")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			if err := store.DeleteCard(tid, req.GetString("card_id", "")); err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -337,15 +385,18 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("move_card",
 			mcp.WithDescription("將用戶的任務卡移動到另一個欄位，可指定插入位置。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("card_id", mcp.Required(), mcp.Description("要移動的任務卡 ID")),
 			mcp.WithString("from_column_id", mcp.Required(), mcp.Description("來源欄位 ID")),
 			mcp.WithString("to_column_id", mcp.Required(), mcp.Description("目標欄位 ID")),
 			mcp.WithNumber("to_index", mcp.Description("插入位置（0=最上方，-1=最下方，預設-1）")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
-			err := store.MoveCard(tid, &MoveCardRequest{
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			err = store.MoveCard(tid, &MoveCardRequest{
 				CardID:       req.GetString("card_id", ""),
 				FromColumnID: req.GetString("from_column_id", ""),
 				ToColumnID:   req.GetString("to_column_id", ""),
@@ -362,11 +413,14 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("search_cards",
 			mcp.WithDescription("在用戶的看板中以關鍵字搜尋任務卡（標題或描述，不分大小寫）。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("query", mcp.Required(), mcp.Description("搜尋關鍵字")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			query := strings.ToLower(strings.TrimSpace(req.GetString("query", "")))
 			if query == "" {
 				return mcp.NewToolResultError("query is required"), nil
@@ -402,13 +456,16 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("add_quick_task",
 			mcp.WithDescription("快速新增待辦事項到用戶看板的第一個欄位（無需指定欄位 ID）。適合 Telegram 快速記事使用。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("title", mcp.Required(), mcp.Description("任務標題")),
 			mcp.WithString("description", mcp.Description("任務描述（選填）")),
 			mcp.WithString("priority", mcp.Description("優先級：high | medium | low，預設 medium")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			title := req.GetString("title", "")
 			if strings.TrimSpace(title) == "" {
 				return mcp.NewToolResultError("title is required"), nil
@@ -445,11 +502,14 @@ func registerTools(s *server.MCPServer, store *SQLiteStore) {
 	s.AddTool(
 		mcp.NewTool("mark_done",
 			mcp.WithDescription("將任務卡標記為完成（移動到看板最後一個欄位）。"),
-			mcp.WithString("telegram_id", mcp.Required(), mcp.Description(telegramIDDesc)),
+			mcp.WithString("telegram_id", mcp.Description(telegramIDDesc)),
 			mcp.WithString("card_id", mcp.Required(), mcp.Description("要完成的任務卡 ID")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tid := req.GetString("telegram_id", "")
+			tid, err := getUserID(req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			cardID := req.GetString("card_id", "")
 
 			board, err := store.EnsureUserBoard(tid)
