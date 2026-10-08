@@ -116,6 +116,8 @@ GET /api/users
 
 以 `--mcp` 旗標啟動時，程式透過 **stdio JSON-RPC** 提供 16 個 MCP 工具，讓 Claude（或其他 MCP 相容的 AI）用自然語言操作看板。
 
+MCP 工具現在要求每次呼叫都傳入 MemAuth 登入後取得的 `token`。KanbanX 會向 `https://auth.justdrink.com.tw/valifytoken` 驗證 token，並以 token 回傳的 `user_id` 作為看板身分；呼叫端不應自行以 `telegram_id` 冒充其他使用者。
+
 ### 啟動
 
 ```bash
@@ -572,6 +574,16 @@ kanban/
 ---
 
 ## 資料庫 Schema
+
+### 匯入 MySQL
+
+MySQL schema 可直接匯入：
+
+```bash
+mysql -u root -p < sql/mysql_schema.sql
+```
+
+匯入後將 `envfile` 設為 `DBMSType=mysql`，並填入 `DBSERVER`、`DBNAME`、`DBLOGIN` 與 `DBPASSWORD`。
 
 ```sql
 -- 每個 Telegram 用戶一個 board

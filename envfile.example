@@ -2,9 +2,15 @@ SystemName=KanbanX
 PORT=8080
 DocumentRoot=www/html
 TemplateRoot=www/template
+DBMSType=sqlite
 DBPath=data/kanban.db
+DBSERVER=MySQLx
+DBNAME=kanbanx
+DBLOGIN=root
+DBPASSWORD=webteam@2019
 
 # USER_SOURCE can be 'telegram', 'ide', 'personal', or 'web'
 # USER_SOURCE=web
 # If USER_SOURCE is 'personal', DEFAULT_USER_ID will be used
 # DEFAULT_USER_ID=my_personal_id
+AuthURL=https://auth.justdrink.com.tw

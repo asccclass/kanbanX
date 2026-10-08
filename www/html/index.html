@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <title>KanbanX — 智能專案看板</title>
   <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js" defer></script>
   <style>
@@ -838,6 +840,8 @@
       text-transform: uppercase; color: var(--txt-3); margin-bottom: 10px;
     }
     .switcher-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+    .btn-danger-soft { color: #fca5a5; border-color: rgba(248,113,113,.24); }
+    .btn-danger-soft:hover { background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.45); }
     .switcher-item {
       display: flex; align-items: center; gap: 10px; padding: 9px 13px;
       border-radius: var(--r-sm); background: rgba(255,255,255,.03);
@@ -896,21 +900,13 @@
   <div class="id-gate-logo">⬡</div>
   <div class="id-gate-title">KanbanX</div>
   <div class="id-gate-sub">
-    請輸入你的 Telegram 用戶 ID 以查看個人看板。<br>
-    首次輸入將自動建立你的專屬看板。
+    <span id="gate-message">使用 JustDrink 帳號登入以查看你的專屬看板。
+    </span>
   </div>
   <div class="id-gate-form">
-    <label class="id-gate-label" for="gate-input">Telegram 用戶 ID</label>
-    <input class="id-gate-input" id="gate-input" type="tel"
-           placeholder="例如：123456789" autocomplete="off"
-           inputmode="numeric" maxlength="20" />
-    <div class="id-gate-hint">
-      在 Telegram 傳送任意訊息給 <code>@userinfobot</code><br>
-      即可取得你的數字 ID
-    </div>
     <button class="btn btn-primary"
             style="width:100%;padding:12px;font-size:15px;margin-top:4px"
-            onclick="commitGateID()">進入我的看板 →</button>
+            onclick="startLogin()">使用 JustDrink 帳號登入 →</button>
   </div>
 </div>
 
@@ -1194,6 +1190,7 @@
       <div class="switcher-empty">載入中…</div>
     </div>
     <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost btn-danger-soft" onclick="logout()">登出</button>
       <button class="btn btn-ghost" onclick="closeSwitcher()">取消</button>
     </div>
   </div>
@@ -1257,6 +1254,34 @@ function applyTID(tid) {
   clearTimers();
   connect();
   document.getElementById('board-title').textContent = '載入中…';
+}
+
+function logout() {
+  closeSwitcher();
+  wsManualStop = true;
+  clearTimers();
+  if (ws && ws.readyState !== WebSocket.CLOSED) {
+    ws.onclose = null;
+    ws.close();
+  }
+  ws = null;
+  wsOk = false;
+  fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
+  currentTID = '';
+  board = null;
+  const url = new URL(location.href);
+  url.searchParams.delete('telegram_id');
+  history.replaceState({}, '', url.pathname + url.search + url.hash);
+  updateUserPill();
+  document.getElementById('board-title').textContent = '尚未登入';
+  document.getElementById('gate-message').textContent = '你已安全登出。請使用 JustDrink 帳號重新登入。';
+  showGate();
+  setTimeout(() => { location.href = 'https://auth.justdrink.com.tw/logout?redirectUrl=' + encodeURIComponent(location.href); }, 250);
+}
+
+function startLogin() {
+  const callback = location.origin + location.pathname + '?auth_callback=1';
+  location.href = 'https://auth.justdrink.com.tw/authlogin?redirectURL=' + encodeURIComponent(callback);
 }
 
 /* ─── WebSocket 自動重連（指數退避）────────────────────────
@@ -1915,7 +1940,6 @@ function showGate() {
   document.getElementById('main-navbar').style.display = 'none';
   document.querySelector('.board-wrap').style.display = 'none';
   document.getElementById('reconn-banner').style.display = 'none';
-  setTimeout(() => document.getElementById('gate-input').focus(), 120);
 }
 
 function hideGate() {
@@ -1923,31 +1947,27 @@ function hideGate() {
   document.getElementById('main-navbar').style.display = '';
   document.querySelector('.board-wrap').style.display = '';
   document.getElementById('reconn-banner').style.display = '';
+  document.getElementById('gate-message').textContent = '使用 JustDrink 帳號登入以查看你的專屬看板。';
 }
-
-function commitGateID() {
-  const tid = document.getElementById('gate-input').value.trim();
-  if (!tid) { document.getElementById('gate-input').focus(); return; }
-  if (!/^\d+$/.test(tid)) {
-    toast('Telegram ID 須為純數字（例如：123456789）', 'err');
-    return;
-  }
-  hideGate();
-  applyTID(tid);
-}
-
-document.getElementById('gate-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') commitGateID();
-});
 
 /* ─── Boot ───────────────────────────────────────────────── */
-(function boot() {
-  const tid = getTID();
-  if (tid) {
-    currentTID = tid;
-    updateUserPill();
-    hideGate();
-    connect();
+(async function boot() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get('token');
+  if (token) {
+    const r = await fetch('/api/auth/session', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({token}) });
+    if (r.ok) {
+      const session = await r.json();
+      currentTID = session.user_id;
+      history.replaceState({}, '', location.pathname);
+      updateUserPill(); hideGate(); connect(); return;
+    }
+  }
+  const r = await fetch('/api/auth/session');
+  if (r.ok) {
+    const session = await r.json();
+    currentTID = session.user_id;
+    updateUserPill(); hideGate(); connect();
   } else {
     showGate();
   }

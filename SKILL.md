@@ -44,7 +44,7 @@ CGO_ENABLED=0 go build -mod=vendor -o kanban .
 
 ## Claude 必讀：使用規則
 
-> **每次呼叫任何工具，都必須傳入 `telegram_id`（Telegram 用戶的數字 ID）。**
+> **每次呼叫任何工具，都必須傳入 MemAuth 的 `token`。** `telegram_id` 可保留作為相容參數，但實際身分以 token 驗證後的 `user_id` 為準。
 > 這是區分不同用戶資料的唯一依據。
 
 - **如何取得 `telegram_id`**：OpenClaw 在 Telegram 對話中會自動提供當前用戶的 Telegram 數字 ID（例如 `123456789`）。Claude 應將此 ID 傳入每一個工具呼叫。

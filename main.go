@@ -55,7 +55,7 @@ func main() {
 		templateRoot = "www/template"
 	}
 
-	store, err := NewSQLiteStore(dbPath)
+	store, err := NewStore()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  ✗ Failed to open database: %v\n", err)
 		os.Exit(1)
@@ -88,7 +88,7 @@ func main() {
 	fmt.Printf("\n")
 	fmt.Printf("  🚀  HTTP Server → http://[IP_ADDRESS] or http://localhost:%s\n", port)
 	fmt.Printf("  📡  WebSocket   → ws://[IP_ADDRESS] or ws://localhost:%s/ws\n", port)
-	fmt.Printf("  🗄️   Database    → %s\n", dbPath)
+	fmt.Printf("  🗄️   Database    → %s (%s)\n", dbPath, os.Getenv("DBMSType"))
 	fmt.Printf("  🤖  MCP mode    → run with --mcp flag\n\n")
 
 	server.Start()

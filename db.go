@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
 )
@@ -20,26 +22,59 @@ import (
 // A read-through cache (boardCache) avoids DB round-trips on every WebSocket broadcast.
 type SQLiteStore struct {
 	db         *sql.DB
-	mu         sync.RWMutex          // guards boardCache
-	boardCache map[string]*Board     // telegramID → *Board
+	dbType     string
+	mu         sync.RWMutex      // guards boardCache
+	boardCache map[string]*Board // telegramID → *Board
 }
 
-func NewSQLiteStore(path string) (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite3", path)
+func NewStore() (*SQLiteStore, error) {
+	dbType := strings.ToLower(strings.TrimSpace(os.Getenv("DBMSType")))
+	if dbType == "" {
+		dbType = "sqlite"
+	}
+	driver, dsn := "sqlite3", os.Getenv("DBPath")
+	if dbType == "mysql" {
+		host := os.Getenv("DBSERVER")
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		port := os.Getenv("DBPORT")
+		if port == "" {
+			port = "3306"
+		}
+		driver = "mysql"
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",
+			os.Getenv("DBLOGIN"), os.Getenv("DBPASSWORD"), host, port, os.Getenv("DBNAME"))
+	} else if dbType != "sqlite" {
+		return nil, fmt.Errorf("unsupported DBMSType %q (use sqlite or mysql)", dbType)
+	}
+	if dsn == "" {
+		dsn = "kanban.db"
+	}
+	db, err := sql.Open(driver, dsn)
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite: %w", err)
+		return nil, fmt.Errorf("open %s: %w", dbType, err)
 	}
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
-		return nil, err
+	if dbType == "sqlite" {
+		if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+			return nil, err
+		}
+		if _, err := db.Exec(`PRAGMA foreign_keys=ON`); err != nil {
+			return nil, err
+		}
 	}
-	if _, err := db.Exec(`PRAGMA foreign_keys=ON`); err != nil {
-		return nil, err
-	}
-	s := &SQLiteStore{db: db, boardCache: make(map[string]*Board)}
+	s := &SQLiteStore{db: db, dbType: dbType, boardCache: make(map[string]*Board)}
 	if err := s.migrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return s, nil
+}
+
+// NewSQLiteStore is kept for compatibility with existing callers.
+func NewSQLiteStore(path string) (*SQLiteStore, error) {
+	os.Setenv("DBMSType", "sqlite")
+	os.Setenv("DBPath", path)
+	return NewStore()
 }
 
 func (s *SQLiteStore) Close() error { return s.db.Close() }
@@ -49,26 +84,26 @@ func (s *SQLiteStore) Close() error { return s.db.Close() }
 const schema = `
 -- Each Telegram user owns exactly one board.
 CREATE TABLE IF NOT EXISTS boards (
-    id          TEXT PRIMARY KEY,
-    telegram_id TEXT NOT NULL UNIQUE,  -- Telegram numeric user ID (stored as text)
-    title       TEXT NOT NULL DEFAULT '我的看板',
+    id          VARCHAR(64) PRIMARY KEY,
+    telegram_id VARCHAR(255) NOT NULL UNIQUE,  -- External user ID (stored as text)
+    title       VARCHAR(255) NOT NULL DEFAULT '我的看板',
     created_at  DATETIME NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS columns (
-    id         TEXT PRIMARY KEY,
-    board_id   TEXT NOT NULL,
-    title      TEXT NOT NULL,
-    color      TEXT NOT NULL DEFAULT '#6366f1',
+    id         VARCHAR(64) PRIMARY KEY,
+    board_id   VARCHAR(64) NOT NULL,
+    title      VARCHAR(255) NOT NULL,
+    color      VARCHAR(32) NOT NULL DEFAULT '#6366f1',
     position   INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL,
     FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS cards (
-    id          TEXT PRIMARY KEY,
-    column_id   TEXT NOT NULL,
-    title       TEXT NOT NULL,
+    id          VARCHAR(64) PRIMARY KEY,
+    column_id   VARCHAR(64) NOT NULL,
+    title       VARCHAR(255) NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     priority    TEXT NOT NULL DEFAULT 'medium',
     assignee    TEXT NOT NULL DEFAULT '',
@@ -79,14 +114,32 @@ CREATE TABLE IF NOT EXISTS cards (
     FOREIGN KEY (column_id) REFERENCES columns(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_boards_telegram ON boards(telegram_id);
-CREATE INDEX IF NOT EXISTS idx_columns_board   ON columns(board_id, position);
-CREATE INDEX IF NOT EXISTS idx_cards_column    ON cards(column_id, position);
 `
 
 func (s *SQLiteStore) migrate() error {
-	_, err := s.db.Exec(schema)
-	return err
+	for _, statement := range strings.Split(schema, ";") {
+		statement = strings.TrimSpace(statement)
+		if statement == "" {
+			continue
+		}
+		if _, err := s.db.Exec(statement); err != nil {
+			return err
+		}
+	}
+	indexes := []string{
+		"CREATE INDEX idx_boards_telegram ON boards(telegram_id)",
+		"CREATE INDEX idx_columns_board ON columns(board_id, position)",
+		"CREATE INDEX idx_cards_column ON cards(column_id, position)",
+	}
+	for _, statement := range indexes {
+		if s.dbType == "sqlite" {
+			statement = strings.Replace(statement, "CREATE INDEX", "CREATE INDEX IF NOT EXISTS", 1)
+		}
+		if _, err := s.db.Exec(statement); err != nil && !(s.dbType == "mysql" && strings.Contains(strings.ToLower(err.Error()), "duplicate key name")) {
+			return err
+		}
+	}
+	return nil
 }
 
 // ─── User Board Management ────────────────────────────────────────────────────
@@ -590,10 +643,12 @@ func (s *SQLiteStore) UpdateColumn(telegramID, id string, req *UpdateColumnReque
 	}
 	parts, args := []string{}, []interface{}{}
 	if req.Title != "" {
-		parts = append(parts, "title=?"); args = append(args, req.Title)
+		parts = append(parts, "title=?")
+		args = append(args, req.Title)
 	}
 	if req.Color != "" {
-		parts = append(parts, "color=?"); args = append(args, req.Color)
+		parts = append(parts, "color=?")
+		args = append(args, req.Color)
 	}
 	if len(parts) == 0 {
 		return s.GetColumn(id)

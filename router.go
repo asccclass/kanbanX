@@ -15,6 +15,9 @@ func NewRouter(srv *SherryServer.Server, documentRoot string, store *SQLiteStore
 
 	router.HandleFunc("GET /api/board", h.GetBoard)
 	router.HandleFunc("GET /api/users", h.ListUsers)
+	router.HandleFunc("POST /api/auth/session", h.CreateAuthSession)
+	router.HandleFunc("GET /api/auth/session", h.CurrentAuthSession)
+	router.HandleFunc("DELETE /api/auth/session", h.DeleteAuthSession)
 
 	router.HandleFunc("GET  /api/cards/{id}", h.GetCard)
 	router.HandleFunc("POST /api/cards", h.CreateCard)
